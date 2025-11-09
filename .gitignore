@@ -1,0 +1,43 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE - RustRover / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+
+# IDE - VS Code
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Config files (may contain secrets)
+.hawkop/
+config.yaml
+
+# Build artifacts
+/dist/
+/build/
+
+# Test artifacts
+/tmp/
+*.log
+
+# Coverage
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml
+lcov.info

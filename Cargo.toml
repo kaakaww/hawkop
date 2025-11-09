@@ -1,0 +1,58 @@
+[package]
+name = "hawkop"
+version = "0.1.0"
+edition = "2021"
+authors = ["StackHawk Team"]
+description = "Professional CLI companion for the StackHawk DAST platform"
+license = "MIT"
+repository = "https://github.com/kaakaww/hawkop"
+
+[dependencies]
+# CLI framework
+clap = { version = "4", features = ["derive", "env"] }
+
+# Async runtime & HTTP
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Configuration & paths
+dirs = "5"
+
+# Output formatting
+tabled = "0.15"
+colored = "2"
+
+# Interactive prompts
+dialoguer = "0.11"
+
+# Progress indicators
+indicatif = "0.17"
+
+# Rate limiting
+governor = "0.6"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async trait support
+async-trait = "0.1"
+
+[dev-dependencies]
+assert_cmd = "2"
+mockito = "1"
+tempfile = "3"
+
+[profile.release]
+lto = true           # Link-time optimization
+codegen-units = 1    # Better optimization
+strip = true         # Remove debug symbols
+opt-level = 3        # Maximum optimization
