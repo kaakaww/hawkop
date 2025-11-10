@@ -2,6 +2,10 @@
 
 use clap::{Parser, Subcommand};
 
+pub mod init;
+pub mod org;
+pub mod status;
+
 /// HawkOp CLI - Professional companion for the StackHawk DAST platform
 #[derive(Parser, Debug)]
 #[command(name = "hawkop")]

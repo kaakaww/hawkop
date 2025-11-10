@@ -5,13 +5,37 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use governor::{Quota, RateLimiter as GovernorRateLimiter};
+use governor::clock::DefaultClock;
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter};
 use reqwest::{Client as HttpClient, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::RwLock;
 
 use super::{JwtToken, Organization, StackHawkApi};
 use crate::error::{ApiError, Result};
+
+/// Decode base64url (URL-safe base64 without padding)
+fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
+    use base64::{engine::general_purpose, Engine as _};
+
+    // Base64url uses - instead of + and _ instead of /
+    let standard_b64 = input.replace('-', "+").replace('_', "/");
+
+    // Add padding if needed
+    let padding = match standard_b64.len() % 4 {
+        0 => "",
+        2 => "==",
+        3 => "=",
+        _ => return Err("Invalid base64url length".to_string()),
+    };
+
+    let padded = format!("{}{}", standard_b64, padding);
+
+    general_purpose::STANDARD
+        .decode(&padded)
+        .map_err(|e| e.to_string())
+}
 
 /// StackHawk API base URL
 const API_BASE_URL: &str = "https://api.stackhawk.com/api/v1";
@@ -23,7 +47,7 @@ const RATE_LIMIT_PER_SECOND: u32 = 6;
 pub struct StackHawkClient {
     http: HttpClient,
     base_url: String,
-    rate_limiter: Arc<GovernorRateLimiter<governor::state::direct::NotKeyed, governor::clock::DefaultClock>>,
+    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
     auth_state: Arc<RwLock<AuthState>>,
 }
 
@@ -45,7 +69,7 @@ impl StackHawkClient {
 
         // Rate limiter: 6 requests per second = 360 per minute
         let quota = Quota::per_second(std::num::NonZeroU32::new(RATE_LIMIT_PER_SECOND).unwrap());
-        let rate_limiter = Arc::new(GovernorRateLimiter::direct(quota));
+        let rate_limiter = Arc::new(RateLimiter::direct(quota));
 
         Ok(Self {
             http,
@@ -96,11 +120,20 @@ impl StackHawkClient {
 
         // Return current JWT
         let state = self.auth_state.read().await;
-        state.jwt.clone().ok_or(ApiError::Unauthorized)
+        state.jwt.clone().ok_or(ApiError::Unauthorized.into())
     }
 
     /// Make an authenticated API request
-    async fn request<T: for<'de> Deserialize<'de>>(
+    fn request<'a, T: for<'de> Deserialize<'de> + 'a>(
+        &'a self,
+        method: reqwest::Method,
+        path: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>> {
+        Box::pin(async move { self.request_inner(method, path).await })
+    }
+
+    /// Internal request implementation
+    async fn request_inner<T: for<'de> Deserialize<'de>>(
         &self,
         method: reqwest::Method,
         path: &str,
@@ -132,14 +165,17 @@ impl StackHawkClient {
             }
             StatusCode::UNAUTHORIZED => {
                 // Try to refresh token once
-                let state = self.auth_state.read().await;
-                if let Some(api_key) = &state.api_key {
-                    drop(state); // Release lock before recursive call
-                    let jwt_token = self.authenticate(api_key).await?;
+                let api_key = {
+                    let state = self.auth_state.read().await;
+                    state.api_key.clone()
+                };
+
+                if let Some(api_key) = api_key {
+                    let jwt_token = self.authenticate(&api_key).await?;
                     self.set_jwt(jwt_token).await;
 
-                    // Retry request
-                    return self.request(method, path).await;
+                    // Retry request - box the recursive call
+                    return Box::pin(self.request_inner(method, path)).await;
                 }
                 Err(ApiError::Unauthorized.into())
             }
@@ -188,54 +224,101 @@ impl StackHawkApi for StackHawkClient {
         // Apply rate limiting
         self.rate_limiter.until_ready().await;
 
-        #[derive(Serialize)]
-        struct LoginRequest {
-            #[serde(rename = "apiKey")]
-            api_key: String,
-        }
-
         #[derive(Deserialize)]
         struct LoginResponse {
             token: String,
-            #[serde(rename = "expiresAt")]
-            expires_at: chrono::DateTime<Utc>,
+        }
+
+        #[derive(Deserialize)]
+        struct JwtPayload {
+            exp: i64, // Unix timestamp
         }
 
         let url = format!("{}/auth/login", self.base_url);
-        let request_body = LoginRequest {
-            api_key: api_key.to_string(),
-        };
 
+        // Use GET with X-ApiKey header
         let response = self
             .http
-            .post(&url)
-            .json(&request_body)
+            .get(&url)
+            .header("X-ApiKey", api_key)
             .send()
             .await
             .map_err(ApiError::from)?;
 
-        if response.status() == StatusCode::UNAUTHORIZED {
+        let status = response.status();
+        if status == StatusCode::UNAUTHORIZED {
             return Err(ApiError::Unauthorized.into());
         }
 
-        let login_response = response.json::<LoginResponse>().await.map_err(|e| {
-            ApiError::InvalidResponse(format!("Failed to parse login response: {}", e))
+        // Get response text for debugging
+        let response_text = response
+            .text()
+            .await
+            .map_err(|e| ApiError::InvalidResponse(format!("Failed to read response: {}", e)))?;
+
+        let login_response: LoginResponse = serde_json::from_str(&response_text).map_err(|e| {
+            ApiError::InvalidResponse(format!(
+                "Failed to parse login response: {}. Body was: {}",
+                e, response_text
+            ))
+        })?;
+
+        // Decode JWT to extract expiration time
+        // JWT format: header.payload.signature
+        let parts: Vec<&str> = login_response.token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(ApiError::InvalidToken.into());
+        }
+
+        // Decode the payload (base64url without padding)
+        let payload_b64 = parts[1];
+        let payload_bytes = base64_decode_url(payload_b64).map_err(|e| {
+            ApiError::InvalidResponse(format!("Failed to decode JWT payload: {}", e))
+        })?;
+
+        let payload: JwtPayload = serde_json::from_slice(&payload_bytes).map_err(|e| {
+            ApiError::InvalidResponse(format!("Failed to parse JWT payload: {}", e))
+        })?;
+
+        let expires_at = chrono::DateTime::from_timestamp(payload.exp, 0).ok_or_else(|| {
+            ApiError::InvalidResponse("Invalid JWT expiration timestamp".to_string())
         })?;
 
         Ok(JwtToken {
             token: login_response.token,
-            expires_at: login_response.expires_at,
+            expires_at,
         })
     }
 
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         #[derive(Deserialize)]
-        struct OrgsResponse {
-            organizations: Vec<Organization>,
+        struct UserOrganization {
+            organization: Organization,
         }
 
-        let response: OrgsResponse = self.request(reqwest::Method::GET, "/orgs").await?;
-        Ok(response.organizations)
+        #[derive(Deserialize)]
+        struct UserExternal {
+            organizations: Vec<UserOrganization>,
+        }
+
+        #[derive(Deserialize)]
+        struct User {
+            external: UserExternal,
+        }
+
+        #[derive(Deserialize)]
+        struct UserResponse {
+            user: User,
+        }
+
+        let response: UserResponse = self.request(reqwest::Method::GET, "/user").await?;
+        Ok(response
+            .user
+            .external
+            .organizations
+            .into_iter()
+            .map(|uo| uo.organization)
+            .collect())
     }
 
     async fn get_org(&self, org_id: &str) -> Result<Organization> {
@@ -262,24 +345,30 @@ mod tests {
         assert!(client.is_jwt_expired().await);
 
         // Set expired JWT
-        client.set_jwt(JwtToken {
-            token: "test".to_string(),
-            expires_at: Utc::now() - chrono::Duration::hours(1),
-        }).await;
+        client
+            .set_jwt(JwtToken {
+                token: "test".to_string(),
+                expires_at: Utc::now() - chrono::Duration::hours(1),
+            })
+            .await;
         assert!(client.is_jwt_expired().await);
 
         // Set valid JWT (expires in 1 hour)
-        client.set_jwt(JwtToken {
-            token: "test".to_string(),
-            expires_at: Utc::now() + chrono::Duration::hours(1),
-        }).await;
+        client
+            .set_jwt(JwtToken {
+                token: "test".to_string(),
+                expires_at: Utc::now() + chrono::Duration::hours(1),
+            })
+            .await;
         assert!(!client.is_jwt_expired().await);
 
         // Set JWT expiring soon (2 minutes)
-        client.set_jwt(JwtToken {
-            token: "test".to_string(),
-            expires_at: Utc::now() + chrono::Duration::minutes(2),
-        }).await;
+        client
+            .set_jwt(JwtToken {
+                token: "test".to_string(),
+                expires_at: Utc::now() + chrono::Duration::minutes(2),
+            })
+            .await;
         assert!(client.is_jwt_expired().await);
     }
 }

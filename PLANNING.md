@@ -22,7 +22,6 @@ The CLI follows GitHub's `gh` CLI design patterns and supports core StackHawk op
 HawkOp will be a fully functional CLI application with comprehensive StackHawk platform integration. The intent is to replicate and surpass most of the functionality of the StackHawk UI at https://app.stackhawk.com and documented at https://docs.stackhawk.com/web-app/ and its sub-pages. 
 
 The architecture includes:
-
 ### Command Structure
 - Root command with subcommands following `hawkop <command> <subcommand>` pattern
 - Commands include `init`, `version`, `status`, `org`, `app`, `user`, `team`, `scan`, `policy`, `finding`, `report`

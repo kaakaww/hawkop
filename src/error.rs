@@ -8,6 +8,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Top-level error type for the application
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum Error {
     #[error(transparent)]
     Api(#[from] ApiError),
@@ -18,12 +19,25 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    #[error("Interactive prompt error: {0}")]
+    Dialoguer(String),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error("Operation failed: {0}")]
     Other(String),
 }
 
+impl From<dialoguer::Error> for Error {
+    fn from(err: dialoguer::Error) -> Self {
+        Error::Dialoguer(err.to_string())
+    }
+}
+
 /// API-related errors
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ApiError {
     #[error("Authentication failed. Run `hawkop init` to set up your API key.")]
     Unauthorized,
@@ -83,7 +97,9 @@ pub enum ConfigError {
     #[error("API key not configured. Run `hawkop init` to set up your API key.")]
     MissingApiKey,
 
-    #[error("Organization not configured. Run `hawkop org set <ORG_ID>` to set default organization.")]
+    #[error(
+        "Organization not configured. Run `hawkop org set <ORG_ID>` to set default organization."
+    )]
     MissingOrgId,
 }
 

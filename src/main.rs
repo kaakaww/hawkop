@@ -24,35 +24,20 @@ async fn run() -> Result<()> {
 
     // Enable debug logging if requested
     if cli.debug {
-        println!("Debug mode enabled");
+        eprintln!("Debug mode enabled");
     }
 
     match cli.command {
-        Commands::Init => {
-            println!("Init command - to be implemented");
-            Ok(())
-        }
-        Commands::Status => {
-            println!("Status command - to be implemented");
-            Ok(())
-        }
+        Commands::Init => cli::init::run().await,
+        Commands::Status => cli::status::run(),
         Commands::Version => {
             println!("hawkop version {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Commands::Org(org_cmd) => match org_cmd {
-            OrgCommands::List => {
-                println!("Org list command - to be implemented");
-                Ok(())
-            }
-            OrgCommands::Set { org_id } => {
-                println!("Org set command - to be implemented for: {}", org_id);
-                Ok(())
-            }
-            OrgCommands::Get => {
-                println!("Org get command - to be implemented");
-                Ok(())
-            }
+            OrgCommands::List => cli::org::list(cli.format).await,
+            OrgCommands::Set { org_id } => cli::org::set(org_id).await,
+            OrgCommands::Get => cli::org::get(cli.format).await,
         },
     }
 }

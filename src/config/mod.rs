@@ -83,8 +83,7 @@ impl Config {
         }
 
         let contents = std::fs::read_to_string(&path)?;
-        let config: Config = serde_yaml::from_str(&contents)
-            .map_err(ConfigError::from)?;
+        let config: Config = serde_yaml::from_str(&contents).map_err(ConfigError::from)?;
 
         Ok(config)
     }
@@ -102,8 +101,8 @@ impl Config {
         }
 
         // Serialize config
-        let contents = serde_yaml::to_string(self)
-            .map_err(|e| ConfigError::SaveError(e.to_string()))?;
+        let contents =
+            serde_yaml::to_string(self).map_err(|e| ConfigError::SaveError(e.to_string()))?;
 
         // Write to file
         std::fs::write(&path, contents)?;
@@ -141,6 +140,7 @@ impl Config {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for Config {
     fn default() -> Self {
         Self {
