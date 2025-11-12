@@ -8,7 +8,7 @@ mod config;
 mod error;
 mod output;
 
-use cli::{Cli, Commands, OrgCommands};
+use cli::{AppCommands, Cli, Commands, OrgCommands};
 use error::Result;
 
 #[tokio::main]
@@ -38,6 +38,9 @@ async fn run() -> Result<()> {
             OrgCommands::List => cli::org::list(cli.format).await,
             OrgCommands::Set { org_id } => cli::org::set(org_id).await,
             OrgCommands::Get => cli::org::get(cli.format).await,
+        },
+        Commands::App(app_cmd) => match app_cmd {
+            AppCommands::List => cli::app::list(cli.format).await,
         },
     }
 }

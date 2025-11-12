@@ -19,8 +19,8 @@ pub trait StackHawkApi: Send + Sync {
     /// List all accessible organizations
     async fn list_orgs(&self) -> Result<Vec<Organization>>;
 
-    /// Get organization details by ID
-    async fn get_org(&self, org_id: &str) -> Result<Organization>;
+    /// List all applications for an organization
+    async fn list_apps(&self, org_id: &str) -> Result<Vec<Application>>;
 }
 
 /// JWT authentication token
@@ -50,4 +50,31 @@ pub struct Organization {
     /// Number of applications (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_count: Option<usize>,
+}
+
+/// Application resource
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Application {
+    /// Application ID
+    #[serde(rename = "applicationId")]
+    pub id: String,
+
+    /// Application name
+    pub name: String,
+
+    /// Environment name (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<String>,
+
+    /// Risk level (optional)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "riskLevel")]
+    pub risk_level: Option<String>,
+
+    /// Application status (optional)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "applicationStatus")]
+    pub status: Option<String>,
+
+    /// Organization ID (optional)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "organizationId")]
+    pub organization_id: Option<String>,
 }

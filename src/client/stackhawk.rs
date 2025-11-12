@@ -12,7 +12,7 @@ use reqwest::{Client as HttpClient, StatusCode};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use super::{JwtToken, Organization, StackHawkApi};
+use super::{Application, JwtToken, Organization, StackHawkApi};
 use crate::error::{ApiError, Result};
 
 /// Decode base64url (URL-safe base64 without padding)
@@ -321,9 +321,16 @@ impl StackHawkApi for StackHawkClient {
             .collect())
     }
 
-    async fn get_org(&self, org_id: &str) -> Result<Organization> {
-        let path = format!("/orgs/{}", org_id);
-        self.request(reqwest::Method::GET, &path).await
+    async fn list_apps(&self, org_id: &str) -> Result<Vec<Application>> {
+        #[derive(Deserialize)]
+        struct AppsResponse {
+            applications: Vec<Application>,
+        }
+
+        // Note: This endpoint is v2, while the base URL is v1, so we use ../v2
+        let path = format!("/../v2/org/{}/apps", org_id);
+        let response: AppsResponse = self.request(reqwest::Method::GET, &path).await?;
+        Ok(response.applications)
     }
 }
 

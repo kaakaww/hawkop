@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
+pub mod app;
 pub mod init;
 pub mod org;
 pub mod status;
@@ -47,6 +48,10 @@ pub enum Commands {
     /// Manage organizations
     #[command(subcommand)]
     Org(OrgCommands),
+
+    /// Manage applications
+    #[command(subcommand)]
+    App(AppCommands),
 }
 
 /// Organization management subcommands
@@ -63,6 +68,13 @@ pub enum OrgCommands {
 
     /// Show current default organization
     Get,
+}
+
+/// Application management subcommands
+#[derive(Subcommand, Debug)]
+pub enum AppCommands {
+    /// List all applications in the current organization
+    List,
 }
 
 /// Output format options
