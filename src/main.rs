@@ -28,19 +28,23 @@ async fn run() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Init => cli::init::run().await,
-        Commands::Status => cli::status::run(),
+        Commands::Init => cli::init::run(cli.config.as_deref()).await,
+        Commands::Status => cli::status::run(cli.config.as_deref()),
         Commands::Version => {
             println!("hawkop version {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Commands::Org(org_cmd) => match org_cmd {
-            OrgCommands::List => cli::org::list(cli.format).await,
-            OrgCommands::Set { org_id } => cli::org::set(org_id).await,
-            OrgCommands::Get => cli::org::get(cli.format).await,
+            OrgCommands::List => cli::org::list(cli.format, cli.config.as_deref()).await,
+            OrgCommands::Set { org_id } => cli::org::set(org_id, cli.config.as_deref()).await,
+            OrgCommands::Get => {
+                cli::org::get(cli.format, cli.org.as_deref(), cli.config.as_deref()).await
+            }
         },
         Commands::App(app_cmd) => match app_cmd {
-            AppCommands::List => cli::app::list(cli.format).await,
+            AppCommands::List => {
+                cli::app::list(cli.format, cli.org.as_deref(), cli.config.as_deref()).await
+            }
         },
     }
 }

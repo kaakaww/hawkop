@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::error::Result;
 
 /// Run the init command
-pub async fn run() -> Result<()> {
+pub async fn run(config_path: Option<&str>) -> Result<()> {
     println!("{}", "Welcome to HawkOp!".bold().green());
     println!("Let's set up your StackHawk configuration.\n");
 
@@ -70,9 +70,9 @@ pub async fn run() -> Result<()> {
         preferences: Default::default(),
     };
 
-    config.save()?;
+    config.save_at(config_path)?;
 
-    let config_path = Config::default_path()?;
+    let config_path = Config::resolve_path(config_path)?;
     println!(
         "\n{} Configuration saved to: {}",
         "✓".green(),

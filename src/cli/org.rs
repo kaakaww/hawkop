@@ -28,8 +28,8 @@ impl From<Organization> for OrgDisplay {
 }
 
 /// Run the org list command
-pub async fn list(format: OutputFormat) -> Result<()> {
-    let config = Config::load()?;
+pub async fn list(format: OutputFormat, config_path: Option<&str>) -> Result<()> {
+    let config = Config::load_at(config_path)?;
     config.validate_auth()?;
 
     let client = StackHawkClient::new(config.api_key.clone())?;
@@ -62,8 +62,9 @@ pub async fn list(format: OutputFormat) -> Result<()> {
 }
 
 /// Run the org set command
-pub async fn set(org_id: String) -> Result<()> {
-    let mut config = Config::load()?;
+pub async fn set(org_id: String, config_path: Option<&str>) -> Result<()> {
+    let resolved_path = Config::resolve_path(config_path)?;
+    let mut config = Config::load_from(resolved_path.clone())?;
     config.validate_auth()?;
 
     // Verify org exists
@@ -94,7 +95,7 @@ pub async fn set(org_id: String) -> Result<()> {
 
     // Update config
     config.org_id = Some(org_id.clone());
-    config.save()?;
+    config.save_to(resolved_path)?;
 
     println!(
         "{} Set default organization to: {} ({})",
@@ -107,9 +108,17 @@ pub async fn set(org_id: String) -> Result<()> {
 }
 
 /// Run the org get command
-pub async fn get(format: OutputFormat) -> Result<()> {
-    let config = Config::load()?;
+pub async fn get(
+    format: OutputFormat,
+    org_override: Option<&str>,
+    config_path: Option<&str>,
+) -> Result<()> {
+    let mut config = Config::load_at(config_path)?;
     config.validate_auth()?;
+
+    if let Some(org) = org_override {
+        config.org_id = Some(org.to_string());
+    }
 
     let org_id = config
         .org_id

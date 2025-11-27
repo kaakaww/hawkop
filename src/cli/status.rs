@@ -6,15 +6,15 @@ use crate::config::Config;
 use crate::error::{ConfigError, Result};
 
 /// Run the status command
-pub fn run() -> Result<()> {
+pub fn run(config_path: Option<&str>) -> Result<()> {
     println!("{}", "HawkOp Configuration Status".bold());
     println!();
 
     // Try to load config
-    let config_path = Config::default_path()?;
+    let config_path = Config::resolve_path(config_path)?;
     println!("Config file: {}", config_path.display());
 
-    match Config::load() {
+    match Config::load_from(config_path.clone()) {
         Ok(config) => {
             // Authentication status
             if config.api_key.is_some() {

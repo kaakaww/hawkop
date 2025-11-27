@@ -96,6 +96,11 @@ All global flags can also be set via environment variables:
 - `HAWKOP_CONFIG`
 - `HAWKOP_DEBUG`
 
+### Output Formats
+
+- `table` is human-readable and suited for terminals.
+- `json` wraps results as `{"data": ..., "meta": {"timestamp": "...", "version": "..."}}` for automation and scripting.
+
 ### `hawkop init`
 
 Initialize HawkOp configuration with interactive prompts.
@@ -186,6 +191,7 @@ Configuration values are resolved in the following order (highest to lowest prio
 - `HAWKOP_FORMAT` - Default output format (`table` or `json`)
 - `HAWKOP_CONFIG` - Override config file path
 - `HAWKOP_DEBUG` - Enable debug logging
+- `HAWKOP_API_BASE_URL`, `HAWKOP_API_BASE_URL_V2` - Override API base URLs (useful for testing/mocking)
 
 ## Architecture
 

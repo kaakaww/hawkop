@@ -7,6 +7,10 @@ description = "Professional CLI companion for the StackHawk DAST platform"
 license = "MIT"
 repository = "https://github.com/kaakaww/hawkop"
 
+[features]
+default = []
+http-tests = []
+
 [dependencies]
 # CLI framework
 clap = { version = "4", features = ["derive", "env"] }
