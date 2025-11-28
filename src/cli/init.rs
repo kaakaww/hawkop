@@ -1,14 +1,14 @@
 //! Init command implementation
 
 use colored::Colorize;
-use dialoguer::{theme::ColorfulTheme, Password, Select};
+use dialoguer::{Password, Select, theme::ColorfulTheme};
 
 use crate::client::{StackHawkApi, StackHawkClient};
 use crate::config::Config;
 use crate::error::Result;
 
 /// Run the init command
-pub async fn run() -> Result<()> {
+pub async fn run(config_path: Option<&str>) -> Result<()> {
     println!("{}", "Welcome to HawkOp!".bold().green());
     println!("Let's set up your StackHawk configuration.\n");
 
@@ -41,11 +41,7 @@ pub async fn run() -> Result<()> {
             .default(true)
             .interact()?;
 
-        if use_org {
-            Some(org.id.clone())
-        } else {
-            None
-        }
+        if use_org { Some(org.id.clone()) } else { None }
     } else {
         let org_names: Vec<String> = orgs.iter().map(|o| o.name.clone()).collect();
 
@@ -70,9 +66,9 @@ pub async fn run() -> Result<()> {
         preferences: Default::default(),
     };
 
-    config.save()?;
+    config.save_at(config_path)?;
 
-    let config_path = Config::default_path()?;
+    let config_path = Config::resolve_path(config_path)?;
     println!(
         "\n{} Configuration saved to: {}",
         "✓".green(),

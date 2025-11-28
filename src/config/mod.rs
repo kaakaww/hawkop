@@ -71,7 +71,22 @@ impl Config {
         Ok(home.join(".hawkop").join("config.yaml"))
     }
 
+    /// Resolve a config path, falling back to the default location
+    pub fn resolve_path(path: Option<&str>) -> Result<PathBuf> {
+        match path {
+            Some(p) => Ok(PathBuf::from(p)),
+            None => Self::default_path(),
+        }
+    }
+
+    /// Load configuration from an optional path (or default)
+    pub fn load_at(path: Option<&str>) -> Result<Self> {
+        let path = Self::resolve_path(path)?;
+        Self::load_from(path)
+    }
+
     /// Load configuration from the default path
+    #[allow(dead_code)]
     pub fn load() -> Result<Self> {
         Self::load_from(Self::default_path()?)
     }
@@ -89,8 +104,15 @@ impl Config {
     }
 
     /// Save configuration to the default path
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         self.save_to(Self::default_path()?)
+    }
+
+    /// Save configuration to an optional path (or default)
+    pub fn save_at(&self, path: Option<&str>) -> Result<()> {
+        let path = Self::resolve_path(path)?;
+        self.save_to(path)
     }
 
     /// Save configuration to a specific path

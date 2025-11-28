@@ -29,11 +29,19 @@ impl From<Application> for AppDisplay {
 }
 
 /// Run the app list command
-pub async fn list(format: OutputFormat) -> Result<()> {
-    let config = Config::load()?;
+pub async fn list(
+    format: OutputFormat,
+    org_override: Option<&str>,
+    config_path: Option<&str>,
+) -> Result<()> {
+    let mut config = Config::load_at(config_path)?;
     config.validate_auth()?;
 
-    // Get org_id from config
+    if let Some(org) = org_override {
+        config.org_id = Some(org.to_string());
+    }
+
+    // Get org_id from config or override
     let org_id = config
         .org_id
         .as_ref()

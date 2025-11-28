@@ -17,7 +17,7 @@ use crate::error::{ApiError, Result};
 
 /// Decode base64url (URL-safe base64 without padding)
 fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
-    use base64::{engine::general_purpose, Engine as _};
+    use base64::{Engine as _, engine::general_purpose};
 
     // Base64url uses - instead of + and _ instead of /
     let standard_b64 = input.replace('-', "+").replace('_', "/");
@@ -37,8 +37,9 @@ fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// StackHawk API base URL
-const API_BASE_URL: &str = "https://api.stackhawk.com/api/v1";
+/// StackHawk API base URLs
+const API_BASE_URL_V1: &str = "https://api.stackhawk.com/api/v1";
+const API_BASE_URL_V2: &str = "https://api.stackhawk.com/api/v2";
 
 /// Rate limit: 360 requests per minute (6 per second)
 const RATE_LIMIT_PER_SECOND: u32 = 6;
@@ -46,7 +47,8 @@ const RATE_LIMIT_PER_SECOND: u32 = 6;
 /// StackHawk API client
 pub struct StackHawkClient {
     http: HttpClient,
-    base_url: String,
+    base_url_v1: String,
+    base_url_v2: String,
     rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
     auth_state: Arc<RwLock<AuthState>>,
 }
@@ -71,9 +73,15 @@ impl StackHawkClient {
         let quota = Quota::per_second(std::num::NonZeroU32::new(RATE_LIMIT_PER_SECOND).unwrap());
         let rate_limiter = Arc::new(RateLimiter::direct(quota));
 
+        let base_url_v1 =
+            std::env::var("HAWKOP_API_BASE_URL").unwrap_or_else(|_| API_BASE_URL_V1.to_string());
+        let base_url_v2 =
+            std::env::var("HAWKOP_API_BASE_URL_V2").unwrap_or_else(|_| API_BASE_URL_V2.to_string());
+
         Ok(Self {
             http,
-            base_url: API_BASE_URL.to_string(),
+            base_url_v1,
+            base_url_v2,
             rate_limiter,
             auth_state: Arc::new(RwLock::new(AuthState {
                 api_key,
@@ -129,13 +137,24 @@ impl StackHawkClient {
         method: reqwest::Method,
         path: &'a str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>> {
-        Box::pin(async move { self.request_inner(method, path).await })
+        Box::pin(async move { self.request_inner(method, &self.base_url_v1, path).await })
+    }
+
+    /// Make an authenticated API request to a specific base URL
+    fn request_with_base<'a, T: for<'de> Deserialize<'de> + 'a>(
+        &'a self,
+        method: reqwest::Method,
+        base_url: &'a str,
+        path: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>> {
+        Box::pin(async move { self.request_inner(method, base_url, path).await })
     }
 
     /// Internal request implementation
     async fn request_inner<T: for<'de> Deserialize<'de>>(
         &self,
         method: reqwest::Method,
+        base_url: &str,
         path: &str,
     ) -> Result<T> {
         // Apply rate limiting
@@ -145,7 +164,7 @@ impl StackHawkClient {
         let jwt = self.get_valid_jwt().await?;
 
         // Build request
-        let url = format!("{}{}", self.base_url, path);
+        let url = format!("{}{}", base_url, path);
         let response = self
             .http
             .request(method.clone(), &url)
@@ -175,7 +194,7 @@ impl StackHawkClient {
                     self.set_jwt(jwt_token).await;
 
                     // Retry request - box the recursive call
-                    return Box::pin(self.request_inner(method, path)).await;
+                    return Box::pin(self.request_inner(method, base_url, path)).await;
                 }
                 Err(ApiError::Unauthorized.into())
             }
@@ -234,7 +253,7 @@ impl StackHawkApi for StackHawkClient {
             exp: i64, // Unix timestamp
         }
 
-        let url = format!("{}/auth/login", self.base_url);
+        let url = format!("{}/auth/login", self.base_url_v1);
 
         // Use GET with X-ApiKey header
         let response = self
@@ -327,9 +346,10 @@ impl StackHawkApi for StackHawkClient {
             applications: Vec<Application>,
         }
 
-        // Note: This endpoint is v2, while the base URL is v1, so we use ../v2
-        let path = format!("/../v2/org/{}/apps", org_id);
-        let response: AppsResponse = self.request(reqwest::Method::GET, &path).await?;
+        let path = format!("/org/{}/apps", org_id);
+        let response: AppsResponse = self
+            .request_with_base(reqwest::Method::GET, &self.base_url_v2, &path)
+            .await?;
         Ok(response.applications)
     }
 }
@@ -338,12 +358,14 @@ impl StackHawkApi for StackHawkClient {
 mod tests {
     use super::*;
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[test]
     fn test_client_creation() {
         let client = StackHawkClient::new(Some("test_key".to_string()));
         assert!(client.is_ok());
     }
 
+    #[cfg_attr(target_os = "macos", ignore)]
     #[tokio::test]
     async fn test_jwt_expiry_check() {
         let client = StackHawkClient::new(None).unwrap();

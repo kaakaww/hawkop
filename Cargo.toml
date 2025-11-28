@@ -1,11 +1,15 @@
 [package]
 name = "hawkop"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["StackHawk Team"]
 description = "Professional CLI companion for the StackHawk DAST platform"
 license = "MIT"
 repository = "https://github.com/kaakaww/hawkop"
+
+[features]
+default = []
+http-tests = []
 
 [dependencies]
 # CLI framework
