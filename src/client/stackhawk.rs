@@ -75,8 +75,8 @@ impl StackHawkClient {
 
         let base_url_v1 =
             std::env::var("HAWKOP_API_BASE_URL").unwrap_or_else(|_| API_BASE_URL_V1.to_string());
-        let base_url_v2 = std::env::var("HAWKOP_API_BASE_URL_V2")
-            .unwrap_or_else(|_| API_BASE_URL_V2.to_string());
+        let base_url_v2 =
+            std::env::var("HAWKOP_API_BASE_URL_V2").unwrap_or_else(|_| API_BASE_URL_V2.to_string());
 
         Ok(Self {
             http,

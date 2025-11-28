@@ -83,15 +83,12 @@ pub async fn set(org_id: String, config_path: Option<&str>) -> Result<()> {
 
     // Get all orgs and verify the provided org_id exists
     let orgs = client.list_orgs().await?;
-    let org = orgs
-        .iter()
-        .find(|o| o.id == org_id)
-        .ok_or_else(|| {
-            crate::error::ApiError::NotFound(format!(
-                "Organization {} not found or you don't have access to it",
-                org_id
-            ))
-        })?;
+    let org = orgs.iter().find(|o| o.id == org_id).ok_or_else(|| {
+        crate::error::ApiError::NotFound(format!(
+            "Organization {} not found or you don't have access to it",
+            org_id
+        ))
+    })?;
 
     // Update config
     config.org_id = Some(org_id.clone());
@@ -138,15 +135,12 @@ pub async fn get(
 
     // Get all orgs and find the one matching our configured org_id
     let orgs = client.list_orgs().await?;
-    let org = orgs
-        .iter()
-        .find(|o| &o.id == org_id)
-        .ok_or_else(|| {
-            crate::error::ApiError::NotFound(format!(
-                "Organization {} not found or you don't have access to it",
-                org_id
-            ))
-        })?;
+    let org = orgs.iter().find(|o| &o.id == org_id).ok_or_else(|| {
+        crate::error::ApiError::NotFound(format!(
+            "Organization {} not found or you don't have access to it",
+            org_id
+        ))
+    })?;
 
     match format {
         OutputFormat::Table => {
