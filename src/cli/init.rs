@@ -1,7 +1,7 @@
 //! Init command implementation
 
 use colored::Colorize;
-use dialoguer::{theme::ColorfulTheme, Password, Select};
+use dialoguer::{Password, Select, theme::ColorfulTheme};
 
 use crate::client::{StackHawkApi, StackHawkClient};
 use crate::config::Config;
@@ -41,11 +41,7 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
             .default(true)
             .interact()?;
 
-        if use_org {
-            Some(org.id.clone())
-        } else {
-            None
-        }
+        if use_org { Some(org.id.clone()) } else { None }
     } else {
         let org_names: Vec<String> = orgs.iter().map(|o| o.name.clone()).collect();
 

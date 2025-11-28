@@ -17,7 +17,7 @@ use crate::error::{ApiError, Result};
 
 /// Decode base64url (URL-safe base64 without padding)
 fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
-    use base64::{engine::general_purpose, Engine as _};
+    use base64::{Engine as _, engine::general_purpose};
 
     // Base64url uses - instead of + and _ instead of /
     let standard_b64 = input.replace('-', "+").replace('_', "/");

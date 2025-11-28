@@ -1,8 +1,8 @@
 //! Table output formatting
 
 use tabled::{
-    settings::{object::Rows, Alignment, Modify, Style},
     Table, Tabled,
+    settings::{Alignment, Modify, Style, object::Rows},
 };
 
 /// Format data as a table
