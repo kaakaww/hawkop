@@ -48,8 +48,14 @@ async fn run() -> Result<()> {
             }
         },
         Commands::App(app_cmd) => match app_cmd {
-            AppCommands::List => {
-                cli::app::list(cli.format, cli.org.as_deref(), cli.config.as_deref()).await
+            AppCommands::List { pagination } => {
+                cli::app::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
             }
         },
     };

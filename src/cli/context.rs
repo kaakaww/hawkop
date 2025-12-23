@@ -4,7 +4,7 @@
 //! for config loading, authentication validation, and client initialization.
 
 use crate::cli::OutputFormat;
-use crate::client::{JwtToken, StackHawkClient};
+use crate::client::{JwtToken, StackHawkApi, StackHawkClient};
 use crate::config::Config;
 use crate::error::Result;
 
@@ -32,7 +32,7 @@ impl CommandContext {
     /// - Applying org_id override if provided
     /// - Validating authentication (API key present)
     /// - Creating the API client
-    /// - Setting JWT token if available
+    /// - Authenticating and caching JWT token
     ///
     /// # Arguments
     /// * `format` - Output format (table/json)
@@ -56,14 +56,31 @@ impl CommandContext {
 
         let client = StackHawkClient::new(config.api_key.clone())?;
 
-        // Set JWT if available
-        if let Some(ref jwt) = config.jwt {
-            client
-                .set_jwt(JwtToken {
-                    token: jwt.token.clone(),
-                    expires_at: jwt.expires_at,
-                })
-                .await;
+        // Use cached JWT if valid, otherwise authenticate and cache
+        if !config.is_token_expired() {
+            // Use cached token
+            if let Some(ref jwt) = config.jwt {
+                client
+                    .set_jwt(JwtToken {
+                        token: jwt.token.clone(),
+                        expires_at: jwt.expires_at,
+                    })
+                    .await;
+            }
+        } else {
+            // Authenticate and cache the new token
+            let api_key = config.api_key.as_ref().expect("validated above");
+            let jwt = client.authenticate(api_key).await?;
+
+            // Save to config for future runs
+            config.jwt = Some(crate::config::JwtToken {
+                token: jwt.token.clone(),
+                expires_at: jwt.expires_at,
+            });
+            config.save_at(config_path)?;
+
+            // Set on client
+            client.set_jwt(jwt).await;
         }
 
         Ok(Self {

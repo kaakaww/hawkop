@@ -140,22 +140,23 @@ impl StackHawkClient {
         Box::pin(async move { self.request_inner(method, &self.base_url_v1, path).await })
     }
 
-    /// Make an authenticated API request to a specific base URL
-    fn request_with_base<'a, T: for<'de> Deserialize<'de> + 'a>(
-        &'a self,
-        method: reqwest::Method,
-        base_url: &'a str,
-        path: &'a str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>> {
-        Box::pin(async move { self.request_inner(method, base_url, path).await })
-    }
-
     /// Internal request implementation
     async fn request_inner<T: for<'de> Deserialize<'de>>(
         &self,
         method: reqwest::Method,
         base_url: &str,
         path: &str,
+    ) -> Result<T> {
+        self.request_with_query(method, base_url, path, &[]).await
+    }
+
+    /// Internal request implementation with query parameters
+    async fn request_with_query<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: reqwest::Method,
+        base_url: &str,
+        path: &str,
+        query_params: &[(&str, String)],
     ) -> Result<T> {
         // Apply rate limiting
         self.rate_limiter.until_ready().await;
@@ -165,13 +166,17 @@ impl StackHawkClient {
 
         // Build request
         let url = format!("{}{}", base_url, path);
-        let response = self
+        let mut request = self
             .http
             .request(method.clone(), &url)
-            .header("Authorization", format!("Bearer {}", jwt))
-            .send()
-            .await
-            .map_err(ApiError::from)?;
+            .header("Authorization", format!("Bearer {}", jwt));
+
+        // Add query parameters
+        if !query_params.is_empty() {
+            request = request.query(query_params);
+        }
+
+        let response = request.send().await.map_err(ApiError::from)?;
 
         // Handle response status
         let status = response.status();
@@ -193,8 +198,9 @@ impl StackHawkClient {
                     let jwt_token = self.authenticate(&api_key).await?;
                     self.set_jwt(jwt_token).await;
 
-                    // Retry request - box the recursive call
-                    return Box::pin(self.request_inner(method, base_url, path)).await;
+                    // Retry request with same query params - box the recursive call
+                    return Box::pin(self.request_with_query(method, base_url, path, query_params))
+                        .await;
                 }
                 Err(ApiError::Unauthorized.into())
             }
@@ -340,15 +346,29 @@ impl StackHawkApi for StackHawkClient {
             .collect())
     }
 
-    async fn list_apps(&self, org_id: &str) -> Result<Vec<Application>> {
+    async fn list_apps(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Application>> {
         #[derive(Deserialize)]
         struct AppsResponse {
             applications: Vec<Application>,
         }
 
         let path = format!("/org/{}/apps", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
         let response: AppsResponse = self
-            .request_with_base(reqwest::Method::GET, &self.base_url_v2, &path)
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v2,
+                &path,
+                &query_params,
+            )
             .await?;
         Ok(response.applications)
     }

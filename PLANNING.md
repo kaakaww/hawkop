@@ -93,6 +93,37 @@ The architecture includes:
 7. **Automation Helpers**
     - HawkScan install automation helper for all platforms (find version, download, install, set path, check JDK, etc)
 
+8. **Repository/Data Abstraction Layer**
+    - Replace simple list caching with full API response payload caching (includes pagination metadata: `hasNext`, `currentPage`, `next` cursor, etc.)
+    - Implement Repository pattern to abstract cache vs API:
+      ```
+      src/repository/
+        mod.rs      - Repository trait
+        apps.rs     - AppRepository
+        orgs.rs     - OrgRepository
+        scans.rs    - ScanRepository
+      ```
+    - Repository trait interface:
+      ```rust
+      pub trait Repository<T> {
+          async fn list(&self, query: Query) -> Result<Page<T>>;
+          async fn get(&self, id: &str) -> Result<Option<T>>;
+          fn invalidate(&self);
+      }
+      ```
+    - Benefits:
+      - Callers don't care where data comes from (cache vs API)
+      - Full response payloads cached with metadata
+      - Smart cache invalidation
+      - Support cursor-based pagination from cache
+      - Enable hybrid caching (stale-while-revalidate)
+
+9. **Hybrid Caching Strategy**
+    - Show cached data immediately for fast UX
+    - Refresh stale data in background
+    - Update display if data changed
+    - Configurable staleness thresholds per resource type
+
 ### Configuration File Format
 The config file is stored at `~/.hawkop/config.yaml` with 600 permissions:
 ```yaml

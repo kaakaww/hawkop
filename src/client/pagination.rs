@@ -9,6 +9,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Maximum page size supported by StackHawk API.
+/// Using this as default minimizes API calls.
+pub const MAX_PAGE_SIZE: usize = 1000;
+
 /// Pagination parameters for API requests.
 ///
 /// Use the builder pattern to configure pagination options.
@@ -73,19 +77,24 @@ impl PaginationParams {
     /// Convert to query string parameters.
     ///
     /// Returns a vector of (key, value) pairs suitable for URL encoding.
+    /// Uses StackHawk API parameter names:
+    /// - `pageSize`: number of elements per page (defaults to MAX_PAGE_SIZE to minimize API calls)
+    /// - `pageToken`: page number to start at (0-indexed)
+    /// - `sortField`: field to sort by
+    /// - `sortDir`: 'asc' or 'desc'
     pub fn to_query_params(&self) -> Vec<(&'static str, String)> {
         let mut params = Vec::new();
 
-        if let Some(size) = self.page_size {
-            params.push(("pageSize", size.to_string()));
-        }
+        // Always include pageSize, defaulting to max to minimize API calls
+        let size = self.page_size.unwrap_or(MAX_PAGE_SIZE);
+        params.push(("pageSize", size.to_string()));
 
         if let Some(page) = self.page {
-            params.push(("pageNumber", page.to_string()));
+            params.push(("pageToken", page.to_string()));
         }
 
         if let Some(ref field) = self.sort_by {
-            params.push(("sortBy", field.clone()));
+            params.push(("sortField", field.clone()));
         }
 
         if let Some(order) = self.sort_order {
@@ -93,7 +102,7 @@ impl PaginationParams {
                 SortOrder::Asc => "asc",
                 SortOrder::Desc => "desc",
             };
-            params.push(("sortOrder", order_str.to_string()));
+            params.push(("sortDir", order_str.to_string()));
         }
 
         params
@@ -195,7 +204,11 @@ mod tests {
     fn test_pagination_params_default() {
         let params = PaginationParams::new();
         assert!(params.is_empty());
-        assert!(params.to_query_params().is_empty());
+
+        // Even with no params set, to_query_params includes default pageSize
+        let query = params.to_query_params();
+        assert_eq!(query.len(), 1);
+        assert!(query.contains(&("pageSize", MAX_PAGE_SIZE.to_string())));
     }
 
     #[test]
@@ -220,7 +233,7 @@ mod tests {
         let query = params.to_query_params();
         assert_eq!(query.len(), 2);
         assert!(query.contains(&("pageSize", "50".to_string())));
-        assert!(query.contains(&("pageNumber", "1".to_string())));
+        assert!(query.contains(&("pageToken", "1".to_string())));
     }
 
     #[test]

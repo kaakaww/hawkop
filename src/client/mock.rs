@@ -125,7 +125,11 @@ impl StackHawkApi for MockStackHawkClient {
         Ok(self.orgs.lock().await.clone())
     }
 
-    async fn list_apps(&self, _org_id: &str) -> Result<Vec<Application>> {
+    async fn list_apps(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Application>> {
         self.check_error().await?;
 
         let mut counts = self.call_count.lock().await;
@@ -146,7 +150,7 @@ mod tests {
         let orgs = mock.list_orgs().await.unwrap();
         assert!(orgs.is_empty());
 
-        let apps = mock.list_apps("test-org").await.unwrap();
+        let apps = mock.list_apps("test-org", None).await.unwrap();
         assert!(apps.is_empty());
     }
 
@@ -188,7 +192,7 @@ mod tests {
             }])
             .await;
 
-        let apps = mock.list_apps("org-1").await.unwrap();
+        let apps = mock.list_apps("org-1", None).await.unwrap();
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].id, "app-1");
     }
@@ -213,7 +217,7 @@ mod tests {
 
         mock.list_orgs().await.unwrap();
         mock.list_orgs().await.unwrap();
-        mock.list_apps("org").await.unwrap();
+        mock.list_apps("org", None).await.unwrap();
 
         let counts = mock.call_counts().await;
         assert_eq!(counts.list_orgs, 2);
