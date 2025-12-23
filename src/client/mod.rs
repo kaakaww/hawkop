@@ -6,8 +6,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 
+#[cfg(test)]
+pub mod mock;
+pub mod pagination;
 pub mod stackhawk;
 
+#[cfg(test)]
+pub use mock::MockStackHawkClient;
+#[allow(unused_imports)]
+pub use pagination::{PaginatedResponse, PaginationMeta, PaginationParams, SortOrder};
 pub use stackhawk::StackHawkClient;
 
 /// StackHawk API client trait

@@ -86,6 +86,13 @@ The architecture includes:
     - Interactive mode for guided workflows
     - Scan result comparison and diff analysis
 
+6. **API Helpers**
+    - CRUD helper for list endpoints that require full list updates
+    - API pagination helper
+
+7. **Automation Helpers**
+    - HawkScan install automation helper for all platforms (find version, download, install, set path, check JDK, etc)
+
 ### Configuration File Format
 The config file is stored at `~/.hawkop/config.yaml` with 600 permissions:
 ```yaml

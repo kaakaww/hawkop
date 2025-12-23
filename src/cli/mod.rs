@@ -3,9 +3,12 @@
 use clap::{Parser, Subcommand};
 
 pub mod app;
+pub mod context;
 pub mod init;
 pub mod org;
 pub mod status;
+
+pub use context::CommandContext;
 
 /// HawkOp CLI - Professional companion for the StackHawk DAST platform
 #[derive(Parser, Debug)]

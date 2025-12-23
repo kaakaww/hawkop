@@ -37,7 +37,7 @@ impl<T> JsonOutput<T> {
 }
 
 /// Format data as pretty-printed JSON
-pub fn format_json<T: Serialize>(data: &T) -> Result<String, serde_json::Error> {
+pub fn format_json<T: Serialize + ?Sized>(data: &T) -> Result<String, serde_json::Error> {
     let output = JsonOutput::new(data);
     serde_json::to_string_pretty(&output)
 }
