@@ -6,6 +6,7 @@ mod cli;
 mod client;
 mod config;
 mod error;
+mod models;
 mod output;
 
 use cli::{AppCommands, Cli, Commands, OrgCommands};
@@ -21,13 +22,18 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let cli = Cli::parse();
+    let debug = cli.debug;
 
-    // Enable debug logging if requested
-    if cli.debug {
-        eprintln!("Debug mode enabled");
+    // Print debug info if requested
+    if debug {
+        eprintln!("[DEBUG] HawkOp v{}", env!("CARGO_PKG_VERSION"));
+        eprintln!("[DEBUG] Command: {:?}", cli.command);
+        eprintln!("[DEBUG] Format: {:?}", cli.format);
+        eprintln!("[DEBUG] Config path: {:?}", cli.config);
+        eprintln!("[DEBUG] Org override: {:?}", cli.org);
     }
 
-    match cli.command {
+    let result = match cli.command {
         Commands::Init => cli::init::run(cli.config.as_deref()).await,
         Commands::Status => cli::status::run(cli.config.as_deref()),
         Commands::Version => {
@@ -42,9 +48,26 @@ async fn run() -> Result<()> {
             }
         },
         Commands::App(app_cmd) => match app_cmd {
-            AppCommands::List => {
-                cli::app::list(cli.format, cli.org.as_deref(), cli.config.as_deref()).await
+            AppCommands::List { pagination } => {
+                cli::app::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
             }
         },
+    };
+
+    // Print debug info on error
+    if debug {
+        if let Err(ref e) = result {
+            eprintln!("[DEBUG] Error: {:?}", e);
+        } else {
+            eprintln!("[DEBUG] Command completed successfully");
+        }
     }
+
+    result
 }

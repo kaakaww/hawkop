@@ -32,7 +32,7 @@ thiserror = "1"
 dirs = "5"
 
 # Output formatting
-tabled = "0.15"
+tabled = "0.20"
 colored = "2"
 
 # Interactive prompts

@@ -6,8 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 
+#[cfg(test)]
+pub mod mock;
+pub mod pagination;
 pub mod stackhawk;
 
+#[cfg(test)]
+#[allow(unused_imports)]
+pub use mock::MockStackHawkClient;
+#[allow(unused_imports)]
+pub use pagination::{
+    MAX_PAGE_SIZE, PaginatedResponse, PaginationMeta, PaginationParams, SortOrder,
+};
 pub use stackhawk::StackHawkClient;
 
 /// StackHawk API client trait
@@ -19,8 +29,12 @@ pub trait StackHawkApi: Send + Sync {
     /// List all accessible organizations
     async fn list_orgs(&self) -> Result<Vec<Organization>>;
 
-    /// List all applications for an organization
-    async fn list_apps(&self, org_id: &str) -> Result<Vec<Application>>;
+    /// List all applications for an organization with optional pagination
+    async fn list_apps(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<Application>>;
 }
 
 /// JWT authentication token
