@@ -1,5 +1,6 @@
 //! StackHawk API client implementation
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -50,6 +51,8 @@ pub struct StackHawkClient {
     base_url_v1: String,
     base_url_v2: String,
     rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
+    /// Only enable rate limiting after we've been rate limited once
+    rate_limit_active: Arc<AtomicBool>,
     auth_state: Arc<RwLock<AuthState>>,
 }
 
@@ -83,6 +86,7 @@ impl StackHawkClient {
             base_url_v1,
             base_url_v2,
             rate_limiter,
+            rate_limit_active: Arc::new(AtomicBool::new(false)),
             auth_state: Arc::new(RwLock::new(AuthState {
                 api_key,
                 jwt: None,
@@ -158,8 +162,10 @@ impl StackHawkClient {
         path: &str,
         query_params: &[(&str, String)],
     ) -> Result<T> {
-        // Apply rate limiting
-        self.rate_limiter.until_ready().await;
+        // Only rate limit after we've hit a 429
+        if self.rate_limit_active.load(Ordering::Relaxed) {
+            self.rate_limiter.until_ready().await;
+        }
 
         // Get valid JWT
         let jwt = self.get_valid_jwt().await?;
@@ -213,13 +219,20 @@ impl StackHawkClient {
                 Err(ApiError::NotFound(error_msg).into())
             }
             StatusCode::TOO_MANY_REQUESTS => {
+                // Activate rate limiting for future requests
+                self.rate_limit_active.store(true, Ordering::Relaxed);
+
+                // Wait the retry-after time and retry
                 let retry_after = response
                     .headers()
                     .get("retry-after")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok())
                     .unwrap_or(60);
-                Err(ApiError::RateLimit(Duration::from_secs(retry_after)).into())
+                tokio::time::sleep(Duration::from_secs(retry_after)).await;
+
+                // Retry the request
+                Box::pin(self.request_with_query(method, base_url, path, query_params)).await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
                 let error_msg = response
@@ -246,8 +259,10 @@ impl StackHawkClient {
 #[async_trait]
 impl StackHawkApi for StackHawkClient {
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
-        // Apply rate limiting
-        self.rate_limiter.until_ready().await;
+        // Only rate limit after we've hit a 429
+        if self.rate_limit_active.load(Ordering::Relaxed) {
+            self.rate_limiter.until_ready().await;
+        }
 
         #[derive(Deserialize)]
         struct LoginResponse {
