@@ -49,6 +49,7 @@ pub async fn list(
     // We sort client-side instead for better UX
     let mut all_scans: Vec<ScanResult> = Vec::new();
     let mut page = pagination.page.unwrap_or(0);
+    let has_status_filter = filters.status.is_some();
 
     loop {
         let pagination_params = PaginationParams::new()
@@ -63,8 +64,16 @@ pub async fn list(
         let batch_size = scans.len();
         all_scans.extend(scans);
 
-        // Stop if we have enough or no more results
-        if all_scans.len() >= target_count || batch_size < SCAN_API_PAGE_SIZE {
+        // When status filtering, count filtered results to know when we have enough
+        // (status filter ratio is unknown, so we can't predict from total count)
+        let effective_count = if has_status_filter {
+            count_status_matches(&all_scans, filters)
+        } else {
+            all_scans.len()
+        };
+
+        // Stop if we have enough filtered results or no more API results
+        if effective_count >= target_count || batch_size < SCAN_API_PAGE_SIZE {
             break;
         }
 
@@ -88,28 +97,40 @@ pub async fn list(
     Ok(())
 }
 
+/// Check if a scan matches the status filter.
+fn matches_status(scan: &ScanResult, status_filter: &str) -> bool {
+    let status_lower = status_filter.to_lowercase();
+    let status_upper = scan.scan.status.to_uppercase();
+    let scan_status = match status_upper.as_str() {
+        "STARTED" => "running",
+        "COMPLETED" => "complete",
+        "ERROR" => "failed",
+        _ => &status_upper,
+    };
+    scan_status.to_lowercase().contains(&status_lower)
+}
+
+/// Count how many scans match the status filter.
+/// Used during pagination to know when we have enough filtered results.
+fn count_status_matches(scans: &[ScanResult], filters: &ScanFilterArgs) -> usize {
+    let Some(ref status_filter) = filters.status else {
+        return scans.len();
+    };
+    scans
+        .iter()
+        .filter(|scan| matches_status(scan, status_filter))
+        .count()
+}
+
 /// Apply client-side status filter to scan results.
 /// Status filtering is not supported server-side, so we filter here.
 fn apply_status_filter(scans: Vec<ScanResult>, filters: &ScanFilterArgs) -> Vec<ScanResult> {
-    // Only filter if status is specified
     let Some(ref status_filter) = filters.status else {
         return scans;
     };
-
-    let status_lower = status_filter.to_lowercase();
-
     scans
         .into_iter()
-        .filter(|scan| {
-            let status_upper = scan.scan.status.to_uppercase();
-            let scan_status = match status_upper.as_str() {
-                "STARTED" => "running",
-                "COMPLETED" => "complete",
-                "ERROR" => "failed",
-                _ => &status_upper,
-            };
-            scan_status.to_lowercase().contains(&status_lower)
-        })
+        .filter(|scan| matches_status(scan, status_filter))
         .collect()
 }
 
