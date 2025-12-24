@@ -167,9 +167,17 @@ fn apply_sort(mut scans: Vec<ScanResult>, pagination: &PaginationArgs) -> Vec<Sc
                 .cmp(&b.scan.status.to_lowercase()),
             "started" | "timestamp" | "time" | "date" => a.scan.timestamp.cmp(&b.scan.timestamp),
             "duration" => {
-                let a_dur = a.scan_duration.as_deref().unwrap_or("0");
-                let b_dur = b.scan_duration.as_deref().unwrap_or("0");
-                a_dur.cmp(b_dur)
+                let a_dur: f64 = a
+                    .scan_duration
+                    .as_deref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
+                let b_dur: f64 = b
+                    .scan_duration
+                    .as_deref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
+                a_dur.partial_cmp(&b_dur).unwrap_or(std::cmp::Ordering::Equal)
             }
             "id" => a.scan.id.cmp(&b.scan.id),
             _ => std::cmp::Ordering::Equal,
