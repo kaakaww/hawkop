@@ -9,6 +9,7 @@ use chrono::Utc;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
+use log::debug;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Deserialize;
 use tokio::sync::RwLock;
@@ -164,6 +165,7 @@ impl StackHawkClient {
     ) -> Result<T> {
         // Only rate limit after we've hit a 429
         if self.rate_limit_active.load(Ordering::Relaxed) {
+            debug!("Rate limiting active, waiting for permit");
             self.rate_limiter.until_ready().await;
         }
 
@@ -172,6 +174,11 @@ impl StackHawkClient {
 
         // Build request
         let url = format!("{}{}", base_url, path);
+        debug!("API request: {} {}", method, url);
+        if !query_params.is_empty() {
+            debug!("Query params: {:?}", query_params);
+        }
+
         let mut request = self
             .http
             .request(method.clone(), &url)
@@ -186,6 +193,8 @@ impl StackHawkClient {
 
         // Handle response status
         let status = response.status();
+        debug!("API response: {} {}", status.as_u16(), status.canonical_reason().unwrap_or(""));
+
         match status {
             StatusCode::OK => {
                 let data = response.json::<T>().await.map_err(|e| {
@@ -194,6 +203,7 @@ impl StackHawkClient {
                 Ok(data)
             }
             StatusCode::UNAUTHORIZED => {
+                debug!("Received 401, attempting token refresh");
                 // Try to refresh token once
                 let api_key = {
                     let state = self.auth_state.read().await;
@@ -203,6 +213,7 @@ impl StackHawkClient {
                 if let Some(api_key) = api_key {
                     let jwt_token = self.authenticate(&api_key).await?;
                     self.set_jwt(jwt_token).await;
+                    debug!("Token refreshed, retrying request");
 
                     // Retry request with same query params - box the recursive call
                     return Box::pin(self.request_with_query(method, base_url, path, query_params))
@@ -229,6 +240,10 @@ impl StackHawkClient {
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok())
                     .unwrap_or(60);
+                debug!(
+                    "Rate limited (429), enabling rate limiter, waiting {}s before retry",
+                    retry_after
+                );
                 tokio::time::sleep(Duration::from_secs(retry_after)).await;
 
                 // Retry the request
@@ -239,6 +254,7 @@ impl StackHawkClient {
                     .text()
                     .await
                     .unwrap_or_else(|_| "Bad request".to_string());
+                debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
             status if status.is_server_error() => {
@@ -246,10 +262,12 @@ impl StackHawkClient {
                     .text()
                     .await
                     .unwrap_or_else(|_| format!("Server error: {}", status));
+                debug!("Server error: {}", error_msg);
                 Err(ApiError::ServerError(error_msg).into())
             }
             _ => {
                 let error_msg = format!("Unexpected status code: {}", status);
+                debug!("{}", error_msg);
                 Err(ApiError::InvalidResponse(error_msg).into())
             }
         }
@@ -275,6 +293,7 @@ impl StackHawkApi for StackHawkClient {
         }
 
         let url = format!("{}/auth/login", self.base_url_v1);
+        debug!("Authenticating with API key");
 
         // Use GET with X-ApiKey header
         let response = self
@@ -286,7 +305,9 @@ impl StackHawkApi for StackHawkClient {
             .map_err(ApiError::from)?;
 
         let status = response.status();
+        debug!("Auth response: {}", status);
         if status == StatusCode::UNAUTHORIZED {
+            debug!("Authentication failed: unauthorized");
             return Err(ApiError::Unauthorized.into());
         }
 
@@ -324,6 +345,7 @@ impl StackHawkApi for StackHawkClient {
             ApiError::InvalidResponse("Invalid JWT expiration timestamp".to_string())
         })?;
 
+        debug!("Authentication successful, token expires at {}", expires_at);
         Ok(JwtToken {
             token: login_response.token,
             expires_at,
