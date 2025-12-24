@@ -196,6 +196,109 @@ impl<T> PaginatedResponse<T> {
     }
 }
 
+/// Filter parameters for scan list API requests.
+///
+/// Supports server-side filtering by apps, environments, teams, and time range.
+///
+/// # Example
+/// ```ignore
+/// let filters = ScanFilterParams::new()
+///     .app_ids(vec!["app-1".to_string(), "app-2".to_string()])
+///     .envs(vec!["production".to_string()]);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ScanFilterParams {
+    /// Filter by application IDs (parameter: appIds)
+    pub app_ids: Vec<String>,
+    /// Filter by environment names (parameter: envs)
+    pub envs: Vec<String>,
+    /// Filter by team IDs (parameter: teamIds)
+    pub team_ids: Vec<String>,
+    /// Start time filter (Unix timestamp in milliseconds)
+    pub start: Option<i64>,
+    /// End time filter (Unix timestamp in milliseconds)
+    pub end: Option<i64>,
+}
+
+impl ScanFilterParams {
+    /// Create new empty filter params.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set application ID filters.
+    pub fn app_ids(mut self, ids: Vec<String>) -> Self {
+        self.app_ids = ids;
+        self
+    }
+
+    /// Set environment filters.
+    pub fn envs(mut self, envs: Vec<String>) -> Self {
+        self.envs = envs;
+        self
+    }
+
+    /// Set team ID filters.
+    #[allow(dead_code)]
+    pub fn team_ids(mut self, ids: Vec<String>) -> Self {
+        self.team_ids = ids;
+        self
+    }
+
+    /// Set start time filter.
+    #[allow(dead_code)]
+    pub fn start(mut self, timestamp_ms: i64) -> Self {
+        self.start = Some(timestamp_ms);
+        self
+    }
+
+    /// Set end time filter.
+    #[allow(dead_code)]
+    pub fn end(mut self, timestamp_ms: i64) -> Self {
+        self.end = Some(timestamp_ms);
+        self
+    }
+
+    /// Check if any filters are set.
+    pub fn is_empty(&self) -> bool {
+        self.app_ids.is_empty()
+            && self.envs.is_empty()
+            && self.team_ids.is_empty()
+            && self.start.is_none()
+            && self.end.is_none()
+    }
+
+    /// Convert to query string parameters.
+    ///
+    /// Returns a vector of (key, value) pairs suitable for URL encoding.
+    /// Multi-value params (appIds, envs, teamIds) are repeated for each value.
+    pub fn to_query_params(&self) -> Vec<(&'static str, String)> {
+        let mut params = Vec::new();
+
+        for app_id in &self.app_ids {
+            params.push(("appIds", app_id.clone()));
+        }
+
+        for env in &self.envs {
+            params.push(("envs", env.clone()));
+        }
+
+        for team_id in &self.team_ids {
+            params.push(("teamIds", team_id.clone()));
+        }
+
+        if let Some(start) = self.start {
+            params.push(("start", start.to_string()));
+        }
+
+        if let Some(end) = self.end {
+            params.push(("end", end.to_string()));
+        }
+
+        params
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,5 +390,43 @@ mod tests {
 
         let response = PaginatedResponse::with_pagination(vec!["a".to_string()], meta);
         assert!(response.has_next_page());
+    }
+
+    #[test]
+    fn test_scan_filter_params_default() {
+        let params = ScanFilterParams::new();
+        assert!(params.is_empty());
+
+        let query = params.to_query_params();
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_scan_filter_params_builder() {
+        let params = ScanFilterParams::new()
+            .app_ids(vec!["app-1".to_string(), "app-2".to_string()])
+            .envs(vec!["prod".to_string()]);
+
+        assert!(!params.is_empty());
+        assert_eq!(params.app_ids.len(), 2);
+        assert_eq!(params.envs.len(), 1);
+    }
+
+    #[test]
+    fn test_scan_filter_params_to_query() {
+        let params = ScanFilterParams::new()
+            .app_ids(vec!["app-1".to_string(), "app-2".to_string()])
+            .envs(vec!["prod".to_string(), "staging".to_string()]);
+
+        let query = params.to_query_params();
+        assert_eq!(query.len(), 4);
+
+        // Check app IDs are repeated
+        assert!(query.contains(&("appIds", "app-1".to_string())));
+        assert!(query.contains(&("appIds", "app-2".to_string())));
+
+        // Check envs are repeated
+        assert!(query.contains(&("envs", "prod".to_string())));
+        assert!(query.contains(&("envs", "staging".to_string())));
     }
 }

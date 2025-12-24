@@ -3,10 +3,11 @@
 //! Display models transform API response types into CLI-friendly formats
 //! with appropriate column names and serialization.
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tabled::Tabled;
 
-use crate::client::{Application, Organization};
+use crate::client::{Application, Organization, ScanResult};
 
 /// Organization display model for table/JSON output.
 #[derive(Debug, Clone, Tabled, Serialize)]
@@ -65,6 +66,245 @@ impl From<&Application> for AppDisplay {
             id: app.id.clone(),
             name: app.name.clone(),
         }
+    }
+}
+
+/// Scan display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct ScanDisplay {
+    /// Scan ID
+    #[tabled(rename = "SCAN ID")]
+    pub id: String,
+
+    /// Application name
+    #[tabled(rename = "APP")]
+    pub app: String,
+
+    /// Environment
+    #[tabled(rename = "ENV")]
+    pub env: String,
+
+    /// Scan status
+    #[tabled(rename = "STATUS")]
+    pub status: String,
+
+    /// Findings summary (e.g., "3H1 5M0 2L0")
+    #[tabled(rename = "FINDINGS")]
+    pub findings: String,
+
+    /// Scan duration (e.g., "12m 34s")
+    #[tabled(rename = "DURATION")]
+    pub duration: String,
+
+    /// When the scan started (e.g., "2h ago")
+    #[tabled(rename = "STARTED")]
+    pub started: String,
+}
+
+impl From<ScanResult> for ScanDisplay {
+    fn from(result: ScanResult) -> Self {
+        let scan = &result.scan;
+
+        // Format duration (API returns string)
+        let duration = match &result.scan_duration {
+            Some(secs_str) => {
+                if let Ok(secs) = secs_str.parse::<f64>() {
+                    if secs > 0.0 {
+                        format_duration(secs)
+                    } else {
+                        "--".to_string()
+                    }
+                } else {
+                    "--".to_string()
+                }
+            }
+            None => "--".to_string(),
+        };
+
+        // Format started time (API returns timestamp as string)
+        let started = if let Ok(ts) = scan.timestamp.parse::<i64>() {
+            format_relative_time(ts)
+        } else {
+            "--".to_string()
+        };
+
+        // Format findings from alert_stats
+        let findings = format_findings(&result);
+
+        Self {
+            id: scan.id.clone(),
+            app: scan.application_name.clone(),
+            env: scan.env.clone(),
+            status: format_status(&scan.status),
+            findings,
+            duration,
+            started,
+        }
+    }
+}
+
+impl From<&ScanResult> for ScanDisplay {
+    fn from(result: &ScanResult) -> Self {
+        ScanDisplay::from(result.clone())
+    }
+}
+
+/// Format scan status for display (normalize case)
+fn format_status(status: &str) -> String {
+    match status.to_uppercase().as_str() {
+        "STARTED" => "Running".to_string(),
+        "COMPLETED" => "Complete".to_string(),
+        "ERROR" => "Failed".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Format duration in seconds to human-readable string
+fn format_duration(seconds: f64) -> String {
+    let total_secs = seconds as u64;
+
+    if total_secs < 60 {
+        format!("{}s", total_secs)
+    } else if total_secs < 3600 {
+        let mins = total_secs / 60;
+        let secs = total_secs % 60;
+        if secs > 0 {
+            format!("{}m {}s", mins, secs)
+        } else {
+            format!("{}m", mins)
+        }
+    } else {
+        let hours = total_secs / 3600;
+        let mins = (total_secs % 3600) / 60;
+        if mins > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}h", hours)
+        }
+    }
+}
+
+/// Format timestamp as relative time (e.g., "5m ago", "2h ago")
+fn format_relative_time(timestamp_ms: i64) -> String {
+    let scan_time = DateTime::from_timestamp_millis(timestamp_ms)
+        .unwrap_or_else(|| DateTime::from_timestamp(timestamp_ms, 0).unwrap_or(Utc::now()));
+
+    let now = Utc::now();
+    let duration = now.signed_duration_since(scan_time);
+
+    let seconds = duration.num_seconds();
+    if seconds < 0 {
+        return "just now".to_string();
+    }
+
+    if seconds < 60 {
+        return format!("{}s ago", seconds);
+    }
+
+    let minutes = duration.num_minutes();
+    if minutes < 60 {
+        return format!("{}m ago", minutes);
+    }
+
+    let hours = duration.num_hours();
+    if hours < 24 {
+        return format!("{}h ago", hours);
+    }
+
+    let days = duration.num_days();
+    if days < 7 {
+        return format!("{}d ago", days);
+    }
+
+    let weeks = days / 7;
+    if weeks < 4 {
+        return format!("{}w ago", weeks);
+    }
+
+    // For older scans, show the date
+    scan_time.format("%Y-%m-%d").to_string()
+}
+
+/// Format findings summary from alert_stats.
+/// Format: "{new}{severity}{triaged}" e.g., "3H1 5M0 2L0"
+/// - UNKNOWN status = new findings
+/// - PROMOTED status = triaged findings
+fn format_findings(result: &ScanResult) -> String {
+    let alert_stats = match &result.alert_stats {
+        Some(stats) => stats,
+        None => return "--".to_string(),
+    };
+
+    // Collect counts by severity and status
+    let mut high_new = 0u32;
+    let mut high_triaged = 0u32;
+    let mut medium_new = 0u32;
+    let mut medium_triaged = 0u32;
+    let mut low_new = 0u32;
+    let mut low_triaged = 0u32;
+
+    for status_stat in &alert_stats.alert_status_stats {
+        let is_new = status_stat.alert_status == "UNKNOWN";
+        let is_triaged = status_stat.alert_status == "PROMOTED"
+            || status_stat.alert_status == "ACCEPTED"
+            || status_stat.alert_status == "FALSE_POSITIVE";
+
+        for (severity, count) in &status_stat.severity_stats {
+            match severity.as_str() {
+                "High" => {
+                    if is_new {
+                        high_new += count;
+                    } else if is_triaged {
+                        high_triaged += count;
+                    }
+                }
+                "Medium" => {
+                    if is_new {
+                        medium_new += count;
+                    } else if is_triaged {
+                        medium_triaged += count;
+                    }
+                }
+                "Low" => {
+                    if is_new {
+                        low_new += count;
+                    } else if is_triaged {
+                        low_triaged += count;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // If no findings at all, return "--"
+    if high_new == 0
+        && high_triaged == 0
+        && medium_new == 0
+        && medium_triaged == 0
+        && low_new == 0
+        && low_triaged == 0
+    {
+        return "--".to_string();
+    }
+
+    // Build findings string: "3H1 5M0 2L0"
+    let mut parts = Vec::new();
+
+    if high_new > 0 || high_triaged > 0 {
+        parts.push(format!("{}H{}", high_new, high_triaged));
+    }
+    if medium_new > 0 || medium_triaged > 0 {
+        parts.push(format!("{}M{}", medium_new, medium_triaged));
+    }
+    if low_new > 0 || low_triaged > 0 {
+        parts.push(format!("{}L{}", low_new, low_triaged));
+    }
+
+    if parts.is_empty() {
+        "--".to_string()
+    } else {
+        parts.join(" ")
     }
 }
 

@@ -9,7 +9,7 @@ mod error;
 mod models;
 mod output;
 
-use cli::{AppCommands, Cli, Commands, OrgCommands};
+use cli::{AppCommands, Cli, Commands, OrgCommands, ScanCommands};
 use error::Result;
 
 #[tokio::main]
@@ -53,6 +53,21 @@ async fn run() -> Result<()> {
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Scan(scan_cmd) => match scan_cmd {
+            ScanCommands::List {
+                filters,
+                pagination,
+            } => {
+                cli::scan::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &filters,
                     &pagination,
                 )
                 .await

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::{Application, JwtToken, Organization, StackHawkApi};
+use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
 use crate::error::{ApiError, Result};
 
 /// Mock API client for testing.
@@ -27,6 +27,8 @@ pub struct MockStackHawkClient {
     orgs: Arc<Mutex<Vec<Organization>>>,
     /// Applications to return from list_apps
     apps: Arc<Mutex<Vec<Application>>>,
+    /// Scans to return from list_scans
+    scans: Arc<Mutex<Vec<ScanResult>>>,
     /// JWT to return from authenticate
     jwt: Arc<Mutex<Option<JwtToken>>>,
     /// Error to return (if any) - consumed on first use
@@ -40,6 +42,7 @@ impl Default for MockStackHawkClient {
         Self {
             orgs: Arc::new(Mutex::new(Vec::new())),
             apps: Arc::new(Mutex::new(Vec::new())),
+            scans: Arc::new(Mutex::new(Vec::new())),
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
@@ -53,6 +56,7 @@ pub struct CallCounts {
     pub authenticate: usize,
     pub list_orgs: usize,
     pub list_apps: usize,
+    pub list_scans: usize,
 }
 
 impl MockStackHawkClient {
@@ -70,6 +74,13 @@ impl MockStackHawkClient {
     /// Configure applications to return from list_apps.
     pub async fn with_apps(self, apps: Vec<Application>) -> Self {
         *self.apps.lock().await = apps;
+        self
+    }
+
+    /// Configure scans to return from list_scans.
+    #[allow(dead_code)]
+    pub async fn with_scans(self, scans: Vec<ScanResult>) -> Self {
+        *self.scans.lock().await = scans;
         self
     }
 
@@ -136,6 +147,20 @@ impl StackHawkApi for MockStackHawkClient {
         counts.list_apps += 1;
 
         Ok(self.apps.lock().await.clone())
+    }
+
+    async fn list_scans(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+        _filters: Option<&super::ScanFilterParams>,
+    ) -> Result<Vec<ScanResult>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_scans += 1;
+
+        Ok(self.scans.lock().await.clone())
     }
 }
 

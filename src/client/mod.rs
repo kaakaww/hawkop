@@ -16,7 +16,7 @@ pub mod stackhawk;
 pub use mock::MockStackHawkClient;
 #[allow(unused_imports)]
 pub use pagination::{
-    MAX_PAGE_SIZE, PaginatedResponse, PaginationMeta, PaginationParams, SortOrder,
+    MAX_PAGE_SIZE, PaginatedResponse, PaginationMeta, PaginationParams, ScanFilterParams, SortOrder,
 };
 pub use stackhawk::StackHawkClient;
 
@@ -35,6 +35,14 @@ pub trait StackHawkApi: Send + Sync {
         org_id: &str,
         pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Application>>;
+
+    /// List scans for an organization with optional pagination and filters
+    async fn list_scans(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+        filters: Option<&ScanFilterParams>,
+    ) -> Result<Vec<ScanResult>>;
 }
 
 /// JWT authentication token
@@ -91,4 +99,85 @@ pub struct Application {
     /// Organization ID (optional)
     #[serde(skip_serializing_if = "Option::is_none", rename = "organizationId")]
     pub organization_id: Option<String>,
+}
+
+/// Scan result from the API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scan {
+    /// Scan ID
+    #[serde(rename = "id")]
+    pub id: String,
+
+    /// Application ID
+    pub application_id: String,
+
+    /// Application name
+    pub application_name: String,
+
+    /// Environment name
+    pub env: String,
+
+    /// Scan status (STARTED, COMPLETED, ERROR, UNKNOWN)
+    pub status: String,
+
+    /// Timestamp when scan started (Unix epoch milliseconds as string)
+    pub timestamp: String,
+}
+
+/// Full scan result with duration and stats from applicationScanResults
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    /// Core scan data
+    pub scan: Scan,
+
+    /// Scan duration in seconds (as string from API)
+    #[serde(default)]
+    pub scan_duration: Option<String>,
+
+    /// Number of URLs scanned
+    #[serde(default)]
+    pub url_count: Option<u32>,
+
+    /// Alert statistics
+    #[serde(default)]
+    pub alert_stats: Option<AlertStats>,
+
+    /// Severity statistics - map of severity name to count
+    #[serde(default)]
+    pub severity_stats: Option<std::collections::HashMap<String, u32>>,
+}
+
+/// Alert statistics from scan results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertStats {
+    /// Total number of alerts
+    #[serde(default)]
+    pub total_alerts: u32,
+
+    /// Number of unique alerts
+    #[serde(default)]
+    pub unique_alerts: u32,
+
+    /// Stats broken down by alert status
+    #[serde(default)]
+    pub alert_status_stats: Vec<AlertStatusStats>,
+}
+
+/// Alert statistics by status (UNKNOWN = new, PROMOTED = triaged)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertStatusStats {
+    /// Alert status: UNKNOWN (new), PROMOTED (triaged), etc.
+    pub alert_status: String,
+
+    /// Total count for this status
+    #[serde(default)]
+    pub total_count: u32,
+
+    /// Breakdown by severity
+    #[serde(default)]
+    pub severity_stats: std::collections::HashMap<String, u32>,
 }

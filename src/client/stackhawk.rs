@@ -12,7 +12,7 @@ use reqwest::{Client as HttpClient, StatusCode};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use super::{Application, JwtToken, Organization, StackHawkApi};
+use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
 use crate::error::{ApiError, Result};
 
 /// Decode base64url (URL-safe base64 without padding)
@@ -371,6 +371,40 @@ impl StackHawkApi for StackHawkClient {
             )
             .await?;
         Ok(response.applications)
+    }
+
+    async fn list_scans(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+        filters: Option<&super::ScanFilterParams>,
+    ) -> Result<Vec<ScanResult>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ScansResponse {
+            application_scan_results: Vec<ScanResult>,
+        }
+
+        let path = format!("/scan/{}", org_id);
+
+        // Build query params from pagination and filters
+        let mut query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        // Add filter params (appIds, envs, teamIds, start, end)
+        if let Some(f) = filters {
+            query_params.extend(f.to_query_params());
+        }
+
+        let response: ScansResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.application_scan_results)
     }
 }
 

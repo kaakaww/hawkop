@@ -8,6 +8,7 @@ pub mod app;
 pub mod context;
 pub mod init;
 pub mod org;
+pub mod scan;
 pub mod status;
 
 pub use context::CommandContext;
@@ -21,20 +22,27 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Output format
-    #[arg(long, global = true, env = "HAWKOP_FORMAT", default_value = "table")]
+    /// Output format (table, json)
+    #[arg(
+        long,
+        global = true,
+        env = "HAWKOP_FORMAT",
+        default_value = "table",
+        hide_env = true,
+        hide_possible_values = true
+    )]
     pub format: OutputFormat,
 
     /// Override default organization
-    #[arg(long, global = true, env = "HAWKOP_ORG_ID")]
+    #[arg(long, global = true, env = "HAWKOP_ORG_ID", hide_env = true)]
     pub org: Option<String>,
 
     /// Override config file location
-    #[arg(long, global = true, env = "HAWKOP_CONFIG")]
+    #[arg(long, global = true, env = "HAWKOP_CONFIG", hide_env = true)]
     pub config: Option<String>,
 
     /// Enable debug logging
-    #[arg(long, global = true, env = "HAWKOP_DEBUG")]
+    #[arg(long, global = true, env = "HAWKOP_DEBUG", hide_env = true)]
     pub debug: bool,
 }
 
@@ -57,6 +65,10 @@ pub enum Commands {
     /// Manage applications
     #[command(subcommand)]
     App(AppCommands),
+
+    /// View and manage scans
+    #[command(subcommand)]
+    Scan(ScanCommands),
 }
 
 /// Organization management subcommands
@@ -85,6 +97,40 @@ pub enum AppCommands {
     },
 }
 
+/// Scan management subcommands
+#[derive(Subcommand, Debug)]
+pub enum ScanCommands {
+    /// List recent scans across all applications
+    List {
+        #[command(flatten)]
+        filters: ScanFilterArgs,
+
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Filter arguments for scan list command.
+///
+/// Supports both repeated flags and comma-separated values:
+/// - `--app app1 --app app2` (repeated)
+/// - `--app app1,app2` (comma-separated)
+/// - `--app app1 --app app2,app3` (mixed)
+#[derive(Args, Debug, Default, Clone)]
+pub struct ScanFilterArgs {
+    /// Filter by application ID
+    #[arg(long, short = 'a', value_delimiter = ',')]
+    pub app: Vec<String>,
+
+    /// Filter by environment
+    #[arg(long, short = 'e', value_delimiter = ',')]
+    pub env: Vec<String>,
+
+    /// Filter by status (running, complete, failed)
+    #[arg(long, short = 's')]
+    pub status: Option<String>,
+}
+
 /// Shared pagination arguments for list commands.
 ///
 /// Flatten this into any command that supports pagination:
@@ -96,7 +142,7 @@ pub enum AppCommands {
 /// ```
 #[derive(Args, Debug, Default, Clone)]
 pub struct PaginationArgs {
-    /// Maximum number of results to return (max 1000)
+    /// Maximum results to return
     #[arg(long, short = 'n')]
     pub limit: Option<usize>,
 
@@ -108,17 +154,17 @@ pub struct PaginationArgs {
     #[arg(long)]
     pub sort_by: Option<String>,
 
-    /// Sort direction
-    #[arg(long, value_enum)]
+    /// Sort direction (asc, desc)
+    #[arg(long, value_enum, hide_possible_values = true)]
     pub sort_dir: Option<SortDir>,
 }
 
 /// Sort direction for list commands
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum SortDir {
-    /// Ascending order (A-Z, 0-9, oldest first)
+    /// Ascending order
     Asc,
-    /// Descending order (Z-A, 9-0, newest first)
+    /// Descending order
     Desc,
 }
 
@@ -157,8 +203,8 @@ impl PaginationArgs {
 /// Output format options
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum OutputFormat {
-    /// Human-readable table format
+    /// Table format
     Table,
-    /// JSON format for scripting
+    /// JSON format
     Json,
 }
