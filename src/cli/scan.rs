@@ -12,6 +12,9 @@ const DEFAULT_SCAN_LIMIT: usize = 25;
 /// API's actual max page size for scans endpoint
 const SCAN_API_PAGE_SIZE: usize = 100;
 
+/// Max scans to fetch when sorting (to avoid runaway queries)
+const MAX_SORT_FETCH: usize = 10_000;
+
 /// Run the scan list command
 pub async fn list(
     format: OutputFormat,
@@ -25,9 +28,15 @@ pub async fn list(
 
     let display_limit = pagination.limit.unwrap_or(DEFAULT_SCAN_LIMIT);
 
-    // If filtering or sorting client-side, we need to fetch more
-    let needs_extra = filters.status.is_some() || pagination.sort_by.is_some();
-    let target_count = if needs_extra {
+    // Determine how many scans to fetch:
+    // - Sorting requires all data (API doesn't support useful sort fields)
+    // - Status filtering needs extra since filter ratio is unknown
+    // - Otherwise just fetch what we need to display
+    let has_sort = pagination.sort_by.is_some();
+    let has_status_filter = filters.status.is_some();
+    let target_count = if has_sort {
+        MAX_SORT_FETCH // Fetch all available for accurate sorting
+    } else if has_status_filter {
         display_limit * 10
     } else {
         display_limit
@@ -49,7 +58,6 @@ pub async fn list(
     // We sort client-side instead for better UX
     let mut all_scans: Vec<ScanResult> = Vec::new();
     let mut page = pagination.page.unwrap_or(0);
-    let has_status_filter = filters.status.is_some();
 
     loop {
         let pagination_params = PaginationParams::new()
@@ -83,7 +91,7 @@ pub async fn list(
     // Apply client-side filtering for status (not supported server-side)
     let filtered_scans = apply_status_filter(all_scans, filters);
 
-    // Apply client-side sorting (API has limited sort field support)
+    // Apply client-side sorting (API doesn't support useful sort fields)
     let sorted_scans = apply_sort(filtered_scans, pagination);
 
     // Apply display limit
