@@ -1,5 +1,8 @@
 //! Scan management commands
 
+use futures::future::join_all;
+use log::debug;
+
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
 use crate::client::{PaginationParams, ScanFilterParams, ScanResult, StackHawkApi};
 use crate::error::Result;
@@ -14,6 +17,9 @@ const SCAN_API_PAGE_SIZE: usize = 100;
 
 /// Max scans to fetch when sorting (to avoid runaway queries)
 const MAX_SORT_FETCH: usize = 10_000;
+
+/// Max pages to fetch in parallel per batch
+const PARALLEL_FETCH_LIMIT: usize = 10;
 
 /// Run the scan list command
 pub async fn list(
@@ -53,39 +59,74 @@ pub async fn list(
         None
     };
 
-    // Fetch scans, paginating if needed (API max is 100 per page)
+    // Fetch scans in parallel batches (API max is 100 per page)
     // Note: Don't pass sort params to API - it has limited field support
     // We sort client-side instead for better UX
     let mut all_scans: Vec<ScanResult> = Vec::new();
-    let mut page = pagination.page.unwrap_or(0);
+    let start_page = pagination.page.unwrap_or(0);
 
-    loop {
-        let pagination_params = PaginationParams::new()
-            .page_size(SCAN_API_PAGE_SIZE)
-            .page(page);
+    // Calculate how many pages to fetch in parallel
+    let pages_needed = (target_count + SCAN_API_PAGE_SIZE - 1) / SCAN_API_PAGE_SIZE;
+    let batch_size = pages_needed.min(PARALLEL_FETCH_LIMIT);
 
-        let scans = ctx
-            .client
-            .list_scans(org_id, Some(&pagination_params), filter_params.as_ref())
-            .await?;
+    let mut current_page = start_page;
+    let mut reached_end = false;
 
-        let batch_size = scans.len();
-        all_scans.extend(scans);
+    while !reached_end {
+        // Create parallel fetch tasks for this batch
+        let page_range: Vec<usize> = (current_page..current_page + batch_size).collect();
+        debug!(
+            "Fetching {} pages in parallel: {:?}",
+            page_range.len(),
+            page_range
+        );
 
-        // When status filtering, count filtered results to know when we have enough
-        // (status filter ratio is unknown, so we can't predict from total count)
+        let fetch_futures: Vec<_> = page_range
+            .iter()
+            .map(|&page| {
+                let client = ctx.client.clone();
+                let filter_params_clone = filter_params.clone();
+                let org_id = org_id.to_string();
+                async move {
+                    let params = PaginationParams::new()
+                        .page_size(SCAN_API_PAGE_SIZE)
+                        .page(page);
+                    client
+                        .list_scans(&org_id, Some(&params), filter_params_clone.as_ref())
+                        .await
+                }
+            })
+            .collect();
+
+        let results = join_all(fetch_futures).await;
+
+        // Process results in order
+        for (i, result) in results.into_iter().enumerate() {
+            let scans = result?;
+            let page_size = scans.len();
+            all_scans.extend(scans);
+
+            // If any page returns fewer than max, we've reached the end
+            if page_size < SCAN_API_PAGE_SIZE {
+                debug!("Page {} returned {} results, reached end", page_range[i], page_size);
+                reached_end = true;
+                break;
+            }
+        }
+
+        // Check if we have enough results
         let effective_count = if has_status_filter {
             count_status_matches(&all_scans, filters)
         } else {
             all_scans.len()
         };
 
-        // Stop if we have enough filtered results or no more API results
-        if effective_count >= target_count || batch_size < SCAN_API_PAGE_SIZE {
+        if effective_count >= target_count {
+            debug!("Have {} results, target is {}, stopping", effective_count, target_count);
             break;
         }
 
-        page += 1;
+        current_page += batch_size;
     }
 
     // Apply client-side filtering for status (not supported server-side)
