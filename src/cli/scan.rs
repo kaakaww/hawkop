@@ -179,6 +179,12 @@ fn apply_sort(mut scans: Vec<ScanResult>, pagination: &PaginationArgs) -> Vec<Sc
                     .unwrap_or(0.0);
                 a_dur.partial_cmp(&b_dur).unwrap_or(std::cmp::Ordering::Equal)
             }
+            "findings" | "alerts" => {
+                // Sort by new findings: High first, then Medium, then Low
+                let a_findings = get_new_findings(a);
+                let b_findings = get_new_findings(b);
+                a_findings.cmp(&b_findings)
+            }
             "id" => a.scan.id.cmp(&b.scan.id),
             _ => std::cmp::Ordering::Equal,
         };
@@ -187,4 +193,28 @@ fn apply_sort(mut scans: Vec<ScanResult>, pagination: &PaginationArgs) -> Vec<Sc
     });
 
     scans
+}
+
+/// Extract new findings counts as (high, medium, low) tuple for sorting.
+/// Returns counts in priority order so tuple comparison works correctly.
+fn get_new_findings(scan: &ScanResult) -> (u32, u32, u32) {
+    let Some(ref alert_stats) = scan.alert_stats else {
+        return (0, 0, 0);
+    };
+
+    // Find the "UNKNOWN" status which represents new/untriaged findings
+    let new_stats = alert_stats
+        .alert_status_stats
+        .iter()
+        .find(|s| s.alert_status == "UNKNOWN");
+
+    let Some(stats) = new_stats else {
+        return (0, 0, 0);
+    };
+
+    let high = *stats.severity_stats.get("High").unwrap_or(&0);
+    let medium = *stats.severity_stats.get("Medium").unwrap_or(&0);
+    let low = *stats.severity_stats.get("Low").unwrap_or(&0);
+
+    (high, medium, low)
 }
