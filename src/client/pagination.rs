@@ -196,6 +196,54 @@ impl<T> PaginatedResponse<T> {
     }
 }
 
+/// Response wrapper for parallel pagination using totalCount.
+///
+/// Used to calculate remaining pages after the first request and fetch them in parallel.
+#[derive(Debug, Clone)]
+pub struct PagedResponse<T> {
+    /// The items from this page
+    pub items: Vec<T>,
+    /// Total count of all items (from API response)
+    pub total_count: Option<usize>,
+    /// Page size used for this request
+    pub page_size: usize,
+    /// Page token (0-indexed page number) for this request
+    pub page_token: usize,
+}
+
+impl<T> PagedResponse<T> {
+    /// Create a new paged response.
+    pub fn new(items: Vec<T>, total_count: Option<usize>, page_size: usize, page_token: usize) -> Self {
+        Self {
+            items,
+            total_count,
+            page_size,
+            page_token,
+        }
+    }
+
+    /// Calculate total number of pages based on totalCount.
+    pub fn total_pages(&self) -> Option<usize> {
+        self.total_count.map(|tc| tc.div_ceil(self.page_size))
+    }
+
+    /// Generate page numbers remaining to fetch (excluding already fetched page).
+    pub fn remaining_pages(&self) -> Vec<usize> {
+        match self.total_pages() {
+            Some(total) => (self.page_token + 1..total).collect(),
+            None => vec![],
+        }
+    }
+
+    /// Check if there are more pages to fetch.
+    pub fn has_more_pages(&self) -> bool {
+        match self.total_pages() {
+            Some(total) => self.page_token + 1 < total,
+            None => false,
+        }
+    }
+}
+
 /// Filter parameters for scan list API requests.
 ///
 /// Supports server-side filtering by apps, environments, teams, and time range.
@@ -428,5 +476,51 @@ mod tests {
         // Check envs are repeated
         assert!(query.contains(&("envs", "prod".to_string())));
         assert!(query.contains(&("envs", "staging".to_string())));
+    }
+
+    #[test]
+    fn test_paged_response_total_pages() {
+        // 250 items, 100 per page = 3 pages
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 0);
+        assert_eq!(response.total_pages(), Some(3));
+
+        // 100 items, 100 per page = 1 page
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(100), 100, 0);
+        assert_eq!(response.total_pages(), Some(1));
+
+        // No total count
+        let response: PagedResponse<String> = PagedResponse::new(vec![], None, 100, 0);
+        assert_eq!(response.total_pages(), None);
+    }
+
+    #[test]
+    fn test_paged_response_remaining_pages() {
+        // First page (0) of 3 total pages -> remaining [1, 2]
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 0);
+        assert_eq!(response.remaining_pages(), vec![1, 2]);
+
+        // Second page (1) of 3 total pages -> remaining [2]
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 1);
+        assert_eq!(response.remaining_pages(), vec![2]);
+
+        // Last page -> no remaining
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 2);
+        assert!(response.remaining_pages().is_empty());
+
+        // Only one page -> no remaining
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(50), 100, 0);
+        assert!(response.remaining_pages().is_empty());
+    }
+
+    #[test]
+    fn test_paged_response_has_more_pages() {
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 0);
+        assert!(response.has_more_pages());
+
+        let response: PagedResponse<String> = PagedResponse::new(vec![], Some(250), 100, 2);
+        assert!(!response.has_more_pages());
+
+        let response: PagedResponse<String> = PagedResponse::new(vec![], None, 100, 0);
+        assert!(!response.has_more_pages());
     }
 }

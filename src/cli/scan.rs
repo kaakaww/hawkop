@@ -1,10 +1,11 @@
 //! Scan management commands
 
-use futures::future::join_all;
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
-use crate::client::{PaginationParams, ScanFilterParams, ScanResult, StackHawkApi};
+use crate::client::{
+    PaginationParams, ScanFilterParams, ScanResult, StackHawkApi, fetch_remaining_pages,
+};
 use crate::error::Result;
 use crate::models::ScanDisplay;
 use crate::output::Formattable;
@@ -12,14 +13,14 @@ use crate::output::Formattable;
 /// Default limit for scan list display
 const DEFAULT_SCAN_LIMIT: usize = 25;
 
-/// API's actual max page size for scans endpoint
+/// Requested page size for scans endpoint
 const SCAN_API_PAGE_SIZE: usize = 100;
 
 /// Max scans to fetch when sorting (to avoid runaway queries)
 const MAX_SORT_FETCH: usize = 10_000;
 
-/// Max pages to fetch in parallel per batch
-const PARALLEL_FETCH_LIMIT: usize = 10;
+/// Max concurrent requests in the worker pool
+const PARALLEL_FETCH_LIMIT: usize = 32;
 
 /// Run the scan list command
 pub async fn list(
@@ -59,75 +60,95 @@ pub async fn list(
         None
     };
 
-    // Fetch scans in parallel batches (API max is 100 per page)
-    // Note: Don't pass sort params to API - it has limited field support
-    // We sort client-side instead for better UX
-    let mut all_scans: Vec<ScanResult> = Vec::new();
+    // Fetch scans using totalCount-based parallel pagination
+    // 1. First request gets totalCount
+    // 2. Calculate remaining pages
+    // 3. Fetch remaining pages in parallel
     let start_page = pagination.page.unwrap_or(0);
+    let first_params = PaginationParams::new()
+        .page_size(SCAN_API_PAGE_SIZE)
+        .page(start_page);
 
-    // Calculate how many pages to fetch in parallel
-    let pages_needed = (target_count + SCAN_API_PAGE_SIZE - 1) / SCAN_API_PAGE_SIZE;
-    let batch_size = pages_needed.min(PARALLEL_FETCH_LIMIT);
+    debug!(
+        "Fetching first page to get totalCount (page={}, pageSize={})",
+        start_page, SCAN_API_PAGE_SIZE
+    );
 
-    let mut current_page = start_page;
-    let mut reached_end = false;
+    let first_response = ctx
+        .client
+        .list_scans_paged(&org_id, Some(&first_params), filter_params.as_ref())
+        .await?;
 
-    while !reached_end {
-        // Create parallel fetch tasks for this batch
-        let page_range: Vec<usize> = (current_page..current_page + batch_size).collect();
-        debug!(
-            "Fetching {} pages in parallel: {:?}",
-            page_range.len(),
-            page_range
-        );
+    let mut all_scans = first_response.items;
+    debug!(
+        "First page returned {} items, totalCount={:?}",
+        all_scans.len(),
+        first_response.total_count
+    );
 
-        let fetch_futures: Vec<_> = page_range
-            .iter()
-            .map(|&page| {
+    // Calculate remaining pages based on totalCount and target
+    if let Some(total_count) = first_response.total_count {
+        // Limit to target_count to avoid fetching more than needed
+        let effective_total = total_count.min(target_count);
+        let total_pages = effective_total.div_ceil(SCAN_API_PAGE_SIZE);
+
+        if total_pages > 1 {
+            let remaining_pages: Vec<usize> = (start_page + 1..start_page + total_pages).collect();
+
+            if !remaining_pages.is_empty() {
+                debug!(
+                    "Fetching {} remaining pages in parallel (totalCount={}, target={})",
+                    remaining_pages.len(),
+                    total_count,
+                    target_count
+                );
+
                 let client = ctx.client.clone();
-                let filter_params_clone = filter_params.clone();
-                let org_id = org_id.to_string();
-                async move {
-                    let params = PaginationParams::new()
-                        .page_size(SCAN_API_PAGE_SIZE)
-                        .page(page);
-                    client
-                        .list_scans(&org_id, Some(&params), filter_params_clone.as_ref())
-                        .await
-                }
-            })
-            .collect();
+                let org = org_id.to_string();
+                let filters_clone = filter_params.clone();
 
-        let results = join_all(fetch_futures).await;
+                let remaining_scans = fetch_remaining_pages(
+                    remaining_pages,
+                    move |page| {
+                        let c = client.clone();
+                        let o = org.clone();
+                        let f = filters_clone.clone();
+                        async move {
+                            let params = PaginationParams::new()
+                                .page_size(SCAN_API_PAGE_SIZE)
+                                .page(page);
+                            c.list_scans(&o, Some(&params), f.as_ref()).await
+                        }
+                    },
+                    PARALLEL_FETCH_LIMIT,
+                )
+                .await?;
 
-        // Process results in order
-        for (i, result) in results.into_iter().enumerate() {
-            let scans = result?;
-            let page_size = scans.len();
-            all_scans.extend(scans);
-
-            // If any page returns fewer than max, we've reached the end
-            if page_size < SCAN_API_PAGE_SIZE {
-                debug!("Page {} returned {} results, reached end", page_range[i], page_size);
-                reached_end = true;
-                break;
+                all_scans.extend(remaining_scans);
             }
         }
+    } else {
+        // Fallback: no totalCount available, fetch until we have enough
+        debug!("No totalCount available, fetching pages until target reached");
+        let mut page = start_page + 1;
+        while all_scans.len() < target_count {
+            let params = PaginationParams::new()
+                .page_size(SCAN_API_PAGE_SIZE)
+                .page(page);
+            let scans = ctx
+                .client
+                .list_scans(&org_id, Some(&params), filter_params.as_ref())
+                .await?;
 
-        // Check if we have enough results
-        let effective_count = if has_status_filter {
-            count_status_matches(&all_scans, filters)
-        } else {
-            all_scans.len()
-        };
-
-        if effective_count >= target_count {
-            debug!("Have {} results, target is {}, stopping", effective_count, target_count);
-            break;
+            if scans.is_empty() {
+                break;
+            }
+            all_scans.extend(scans);
+            page += 1;
         }
-
-        current_page += batch_size;
     }
+
+    debug!("Total scans fetched: {}", all_scans.len());
 
     // Apply client-side filtering for status (not supported server-side)
     let filtered_scans = apply_status_filter(all_scans, filters);
@@ -157,18 +178,6 @@ fn matches_status(scan: &ScanResult, status_filter: &str) -> bool {
         _ => &status_upper,
     };
     scan_status.to_lowercase().contains(&status_lower)
-}
-
-/// Count how many scans match the status filter.
-/// Used during pagination to know when we have enough filtered results.
-fn count_status_matches(scans: &[ScanResult], filters: &ScanFilterArgs) -> usize {
-    let Some(ref status_filter) = filters.status else {
-        return scans.len();
-    };
-    scans
-        .iter()
-        .filter(|scan| matches_status(scan, status_filter))
-        .count()
 }
 
 /// Apply client-side status filter to scan results.
@@ -218,7 +227,9 @@ fn apply_sort(mut scans: Vec<ScanResult>, pagination: &PaginationArgs) -> Vec<Sc
                     .as_deref()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0.0);
-                a_dur.partial_cmp(&b_dur).unwrap_or(std::cmp::Ordering::Equal)
+                a_dur
+                    .partial_cmp(&b_dur)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             }
             "findings" | "alerts" => {
                 // Sort by new findings: High first, then Medium, then Low

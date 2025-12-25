@@ -1,21 +1,45 @@
 //! StackHawk API client implementation
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use governor::clock::DefaultClock;
-use governor::state::{InMemoryState, NotKeyed};
-use governor::{Quota, RateLimiter};
 use log::debug;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
+use serde::de::{self, Deserializer};
+
+use super::pagination::PagedResponse;
+use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
 use crate::error::{ApiError, Result};
+
+/// Deserialize a string to usize (API returns some numbers as strings)
+fn deserialize_string_to_usize<'de, D>(deserializer: D) -> std::result::Result<Option<usize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(usize),
+    }
+
+    match Option::<StringOrNumber>::deserialize(deserializer)? {
+        Some(StringOrNumber::String(s)) => s
+            .parse::<usize>()
+            .map(Some)
+            .map_err(de::Error::custom),
+        Some(StringOrNumber::Number(n)) => Ok(Some(n)),
+        None => Ok(None),
+    }
+}
 
 /// Decode base64url (URL-safe base64 without padding)
 fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
@@ -43,17 +67,13 @@ fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
 const API_BASE_URL_V1: &str = "https://api.stackhawk.com/api/v1";
 const API_BASE_URL_V2: &str = "https://api.stackhawk.com/api/v2";
 
-/// Rate limit: 360 requests per minute (6 per second)
-const RATE_LIMIT_PER_SECOND: u32 = 6;
-
 /// StackHawk API client
 pub struct StackHawkClient {
     http: HttpClient,
     base_url_v1: String,
     base_url_v2: String,
-    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
-    /// Only enable rate limiting after we've been rate limited once
-    rate_limit_active: Arc<AtomicBool>,
+    /// Per-endpoint rate limiters (only active after 429 for each category)
+    rate_limiters: Arc<RateLimiterSet>,
     auth_state: Arc<RwLock<AuthState>>,
 }
 
@@ -73,10 +93,6 @@ impl StackHawkClient {
             .build()
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
-        // Rate limiter: 6 requests per second = 360 per minute
-        let quota = Quota::per_second(std::num::NonZeroU32::new(RATE_LIMIT_PER_SECOND).unwrap());
-        let rate_limiter = Arc::new(RateLimiter::direct(quota));
-
         let base_url_v1 =
             std::env::var("HAWKOP_API_BASE_URL").unwrap_or_else(|_| API_BASE_URL_V1.to_string());
         let base_url_v2 =
@@ -86,8 +102,7 @@ impl StackHawkClient {
             http,
             base_url_v1,
             base_url_v2,
-            rate_limiter,
-            rate_limit_active: Arc::new(AtomicBool::new(false)),
+            rate_limiters: Arc::new(RateLimiterSet::new()),
             auth_state: Arc::new(RwLock::new(AuthState {
                 api_key,
                 jwt: None,
@@ -163,18 +178,18 @@ impl StackHawkClient {
         path: &str,
         query_params: &[(&str, String)],
     ) -> Result<T> {
-        // Only rate limit after we've hit a 429
-        if self.rate_limit_active.load(Ordering::Relaxed) {
-            debug!("Rate limiting active, waiting for permit");
-            self.rate_limiter.until_ready().await;
-        }
+        // Categorize this endpoint for rate limiting
+        let category = EndpointCategory::from_request(path, &method);
+
+        // Wait if rate limiting is active for this category
+        self.rate_limiters.wait_for(category).await;
 
         // Get valid JWT
         let jwt = self.get_valid_jwt().await?;
 
         // Build request
         let url = format!("{}{}", base_url, path);
-        debug!("API request: {} {}", method, url);
+        debug!("API request: {} {} (category: {:?})", method, url, category);
         if !query_params.is_empty() {
             debug!("Query params: {:?}", query_params);
         }
@@ -193,7 +208,11 @@ impl StackHawkClient {
 
         // Handle response status
         let status = response.status();
-        debug!("API response: {} {}", status.as_u16(), status.canonical_reason().unwrap_or(""));
+        debug!(
+            "API response: {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        );
 
         match status {
             StatusCode::OK => {
@@ -230,8 +249,8 @@ impl StackHawkClient {
                 Err(ApiError::NotFound(error_msg).into())
             }
             StatusCode::TOO_MANY_REQUESTS => {
-                // Activate rate limiting for future requests
-                self.rate_limit_active.store(true, Ordering::Relaxed);
+                // Activate rate limiting for THIS endpoint category only
+                self.rate_limiters.activate(category).await;
 
                 // Wait the retry-after time and retry
                 let retry_after = response
@@ -241,8 +260,8 @@ impl StackHawkClient {
                     .and_then(|v| v.parse::<u64>().ok())
                     .unwrap_or(60);
                 debug!(
-                    "Rate limited (429), enabling rate limiter, waiting {}s before retry",
-                    retry_after
+                    "Rate limited (429) for {:?}, enabling rate limiter, waiting {}s before retry",
+                    category, retry_after
                 );
                 tokio::time::sleep(Duration::from_secs(retry_after)).await;
 
@@ -277,10 +296,9 @@ impl StackHawkClient {
 #[async_trait]
 impl StackHawkApi for StackHawkClient {
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
-        // Only rate limit after we've hit a 429
-        if self.rate_limit_active.load(Ordering::Relaxed) {
-            self.rate_limiter.until_ready().await;
-        }
+        // Wait if rate limiting is active for the default category (auth endpoint)
+        let category = EndpointCategory::Default;
+        self.rate_limiters.wait_for(category).await;
 
         #[derive(Deserialize)]
         struct LoginResponse {
@@ -442,6 +460,88 @@ impl StackHawkApi for StackHawkClient {
             )
             .await?;
         Ok(response.application_scan_results)
+    }
+
+    async fn list_apps_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<PagedResponse<Application>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AppsPagedResponse {
+            applications: Vec<Application>,
+            /// totalCount may come as a string from the API
+            #[serde(default, deserialize_with = "deserialize_string_to_usize")]
+            total_count: Option<usize>,
+        }
+
+        let path = format!("/org/{}/apps", org_id);
+
+        // Use provided pagination or default
+        let default_params = super::PaginationParams::new().page_size(100);
+        let params = pagination.unwrap_or(&default_params);
+        let query_params: Vec<(&str, String)> = params.to_query_params();
+
+        let response: AppsPagedResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v2,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(PagedResponse::new(
+            response.applications,
+            response.total_count,
+            params.page_size.unwrap_or(100),
+            params.page.unwrap_or(0),
+        ))
+    }
+
+    async fn list_scans_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+        filters: Option<&super::ScanFilterParams>,
+    ) -> Result<PagedResponse<ScanResult>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ScansPagedResponse {
+            application_scan_results: Vec<ScanResult>,
+            /// totalCount comes as a string from the API
+            #[serde(default, deserialize_with = "deserialize_string_to_usize")]
+            total_count: Option<usize>,
+        }
+
+        let path = format!("/scan/{}", org_id);
+
+        // Use provided pagination or default
+        let default_params = super::PaginationParams::new().page_size(100);
+        let params = pagination.unwrap_or(&default_params);
+        let mut query_params: Vec<(&str, String)> = params.to_query_params();
+
+        // Add filter params (appIds, envs, teamIds, start, end)
+        if let Some(f) = filters {
+            query_params.extend(f.to_query_params());
+        }
+
+        let response: ScansPagedResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(PagedResponse::new(
+            response.application_scan_results,
+            response.total_count,
+            params.page_size.unwrap_or(100),
+            params.page.unwrap_or(0),
+        ))
     }
 }
 

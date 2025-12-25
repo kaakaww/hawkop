@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use super::pagination::PagedResponse;
 use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
 use crate::error::{ApiError, Result};
 
@@ -161,6 +162,43 @@ impl StackHawkApi for MockStackHawkClient {
         counts.list_scans += 1;
 
         Ok(self.scans.lock().await.clone())
+    }
+
+    async fn list_apps_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<PagedResponse<Application>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_apps += 1;
+
+        let apps = self.apps.lock().await.clone();
+        let total_count = apps.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(apps, Some(total_count), page_size, page_token))
+    }
+
+    async fn list_scans_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+        _filters: Option<&super::ScanFilterParams>,
+    ) -> Result<PagedResponse<ScanResult>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_scans += 1;
+
+        let scans = self.scans.lock().await.clone();
+        let total_count = scans.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(scans, Some(total_count), page_size, page_token))
     }
 }
 

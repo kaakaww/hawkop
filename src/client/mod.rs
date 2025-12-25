@@ -9,6 +9,8 @@ use crate::error::Result;
 #[cfg(test)]
 pub mod mock;
 pub mod pagination;
+pub mod parallel;
+pub mod rate_limit;
 pub mod stackhawk;
 
 #[cfg(test)]
@@ -16,8 +18,11 @@ pub mod stackhawk;
 pub use mock::MockStackHawkClient;
 #[allow(unused_imports)]
 pub use pagination::{
-    MAX_PAGE_SIZE, PaginatedResponse, PaginationMeta, PaginationParams, ScanFilterParams, SortOrder,
+    MAX_PAGE_SIZE, PagedResponse, PaginatedResponse, PaginationMeta, PaginationParams,
+    ScanFilterParams, SortOrder,
 };
+#[allow(unused_imports)]
+pub use parallel::fetch_remaining_pages;
 pub use stackhawk::StackHawkClient;
 
 /// StackHawk API client trait
@@ -36,6 +41,15 @@ pub trait StackHawkApi: Send + Sync {
         pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Application>>;
 
+    /// List applications with pagination metadata for parallel fetching.
+    ///
+    /// Returns `PagedResponse` with `total_count` for calculating remaining pages.
+    async fn list_apps_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<Application>>;
+
     /// List scans for an organization with optional pagination and filters
     async fn list_scans(
         &self,
@@ -43,6 +57,16 @@ pub trait StackHawkApi: Send + Sync {
         pagination: Option<&PaginationParams>,
         filters: Option<&ScanFilterParams>,
     ) -> Result<Vec<ScanResult>>;
+
+    /// List scans with pagination metadata for parallel fetching.
+    ///
+    /// Returns `PagedResponse` with `total_count` for calculating remaining pages.
+    async fn list_scans_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+        filters: Option<&ScanFilterParams>,
+    ) -> Result<PagedResponse<ScanResult>>;
 }
 
 /// JWT authentication token
