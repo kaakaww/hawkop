@@ -76,7 +76,7 @@ pub async fn list(
 
     let first_response = ctx
         .client
-        .list_scans_paged(&org_id, Some(&first_params), filter_params.as_ref())
+        .list_scans_paged(org_id, Some(&first_params), filter_params.as_ref())
         .await?;
 
     let mut all_scans = first_response.items;
@@ -137,7 +137,7 @@ pub async fn list(
                 .page(page);
             let scans = ctx
                 .client
-                .list_scans(&org_id, Some(&params), filter_params.as_ref())
+                .list_scans(org_id, Some(&params), filter_params.as_ref())
                 .await?;
 
             if scans.is_empty() {
