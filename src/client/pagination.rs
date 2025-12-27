@@ -213,7 +213,12 @@ pub struct PagedResponse<T> {
 
 impl<T> PagedResponse<T> {
     /// Create a new paged response.
-    pub fn new(items: Vec<T>, total_count: Option<usize>, page_size: usize, page_token: usize) -> Self {
+    pub fn new(
+        items: Vec<T>,
+        total_count: Option<usize>,
+        page_size: usize,
+        page_token: usize,
+    ) -> Self {
         Self {
             items,
             total_count,

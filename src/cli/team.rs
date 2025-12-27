@@ -32,7 +32,8 @@ pub async fn list(
         teams
     };
 
-    let display_teams: Vec<TeamDisplay> = limited_teams.into_iter().map(TeamDisplay::from).collect();
+    let display_teams: Vec<TeamDisplay> =
+        limited_teams.into_iter().map(TeamDisplay::from).collect();
     display_teams.print(ctx.format)?;
 
     Ok(())

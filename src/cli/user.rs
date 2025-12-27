@@ -32,7 +32,8 @@ pub async fn list(
         users
     };
 
-    let display_users: Vec<UserDisplay> = limited_users.into_iter().map(UserDisplay::from).collect();
+    let display_users: Vec<UserDisplay> =
+        limited_users.into_iter().map(UserDisplay::from).collect();
     display_users.print(ctx.format)?;
 
     Ok(())

@@ -78,10 +78,7 @@ impl EndpointCategory {
         }
 
         // Pattern: /org/{id}/invite*
-        if path.contains("/org/")
-            && path.contains("/invite")
-            && *method == reqwest::Method::POST
-        {
+        if path.contains("/org/") && path.contains("/invite") && *method == reqwest::Method::POST {
             return EndpointCategory::OrgInvite;
         }
 

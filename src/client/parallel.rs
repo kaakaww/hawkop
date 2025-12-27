@@ -103,15 +103,18 @@ where
         }
     }
 
-    debug!("Fetched {} total items from remaining pages", all_items.len());
+    debug!(
+        "Fetched {} total items from remaining pages",
+        all_items.len()
+    );
     Ok(all_items)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn test_fetch_remaining_pages_empty() {

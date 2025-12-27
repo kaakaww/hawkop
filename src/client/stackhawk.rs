@@ -21,7 +21,9 @@ use super::{
 use crate::error::{ApiError, Result};
 
 /// Deserialize a string to usize (API returns some numbers as strings)
-fn deserialize_string_to_usize<'de, D>(deserializer: D) -> std::result::Result<Option<usize>, D::Error>
+fn deserialize_string_to_usize<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<usize>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -35,10 +37,7 @@ where
     }
 
     match Option::<StringOrNumber>::deserialize(deserializer)? {
-        Some(StringOrNumber::String(s)) => s
-            .parse::<usize>()
-            .map(Some)
-            .map_err(de::Error::custom),
+        Some(StringOrNumber::String(s)) => s.parse::<usize>().map(Some).map_err(de::Error::custom),
         Some(StringOrNumber::Number(n)) => Ok(Some(n)),
         None => Ok(None),
     }

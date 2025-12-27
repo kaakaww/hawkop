@@ -187,14 +187,14 @@ impl From<&User> for UserDisplay {
 impl From<UserExternal> for UserDisplay {
     fn from(user: UserExternal) -> Self {
         // Prefer full_name if available, otherwise combine first/last
-        let name = user.full_name.unwrap_or_else(|| {
-            match (&user.first_name, &user.last_name) {
+        let name = user
+            .full_name
+            .unwrap_or_else(|| match (&user.first_name, &user.last_name) {
                 (Some(first), Some(last)) => format!("{} {}", first, last),
                 (Some(first), None) => first.clone(),
                 (None, Some(last)) => last.clone(),
                 (None, None) => "--".to_string(),
-            }
-        });
+            });
 
         Self {
             id: user.id,
@@ -344,7 +344,11 @@ impl From<Repository> for RepoDisplay {
         let sensitive_data = if repo.sensitive_data_tags.is_empty() {
             "--".to_string()
         } else {
-            let tags: Vec<String> = repo.sensitive_data_tags.iter().map(|t| t.name.clone()).collect();
+            let tags: Vec<String> = repo
+                .sensitive_data_tags
+                .iter()
+                .map(|t| t.name.clone())
+                .collect();
             let joined = tags.join(", ");
             if joined.len() > 20 {
                 format!("{}...", &joined[..17])

@@ -216,7 +216,12 @@ impl StackHawkApi for MockStackHawkClient {
         let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
         let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
 
-        Ok(PagedResponse::new(apps, Some(total_count), page_size, page_token))
+        Ok(PagedResponse::new(
+            apps,
+            Some(total_count),
+            page_size,
+            page_token,
+        ))
     }
 
     async fn list_scans_paged(
@@ -235,7 +240,12 @@ impl StackHawkApi for MockStackHawkClient {
         let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
         let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
 
-        Ok(PagedResponse::new(scans, Some(total_count), page_size, page_token))
+        Ok(PagedResponse::new(
+            scans,
+            Some(total_count),
+            page_size,
+            page_token,
+        ))
     }
 
     async fn list_users(

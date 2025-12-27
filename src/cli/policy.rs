@@ -22,7 +22,10 @@ pub async fn list(
     let org_id = ctx.require_org_id()?;
 
     // Fetch both policy types in parallel
-    debug!("Fetching StackHawk policies and org policies for {}", org_id);
+    debug!(
+        "Fetching StackHawk policies and org policies for {}",
+        org_id
+    );
 
     let params = pagination.to_params();
     let (stackhawk_result, org_result) = tokio::join!(
