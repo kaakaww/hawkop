@@ -10,8 +10,8 @@ mod models;
 mod output;
 
 use cli::{
-    AppCommands, Cli, Commands, ConfigCommands, OasCommands, OrgCommands, PolicyCommands,
-    RepoCommands, ScanCommands, SecretCommands, TeamCommands, UserCommands,
+    AppCommands, AuditCommands, Cli, Commands, ConfigCommands, OasCommands, OrgCommands,
+    PolicyCommands, RepoCommands, ScanCommands, SecretCommands, TeamCommands, UserCommands,
 };
 use error::Result;
 
@@ -153,6 +153,17 @@ async fn run() -> Result<()> {
         },
         Commands::Secret(secret_cmd) => match secret_cmd {
             SecretCommands::List => cli::secret::list(cli.format, cli.config.as_deref()).await,
+        },
+        Commands::Audit(audit_cmd) => match audit_cmd {
+            AuditCommands::List { filters } => {
+                cli::audit::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &filters,
+                )
+                .await
+            }
         },
     };
 

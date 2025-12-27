@@ -15,8 +15,8 @@ use serde::de::{self, Deserializer};
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use super::{
-    Application, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult,
-    Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    Application, AuditFilterParams, AuditRecord, JwtToken, OASAsset, OrgPolicy, Organization,
+    Repository, ScanConfig, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -740,6 +740,34 @@ impl StackHawkApi for StackHawkClient {
             .request_inner(reqwest::Method::GET, &self.base_url_v1, "/user/secret/list")
             .await?;
         Ok(response.user_secrets)
+    }
+
+    async fn list_audit(
+        &self,
+        org_id: &str,
+        filters: Option<&AuditFilterParams>,
+    ) -> Result<Vec<AuditRecord>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AuditResponse {
+            audit_records: Vec<AuditRecord>,
+        }
+
+        let path = format!("/org/{}/audit", org_id);
+
+        // Build query params from filters
+        let query_params: Vec<(&str, String)> =
+            filters.map(|f| f.to_query_params()).unwrap_or_default();
+
+        let response: AuditResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.audit_records)
     }
 }
 

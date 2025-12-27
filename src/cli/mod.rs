@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::client::PaginationParams;
 
 pub mod app;
+pub mod audit;
 pub mod config;
 pub mod context;
 pub mod init;
@@ -104,6 +105,10 @@ pub enum Commands {
     /// List user secrets
     #[command(subcommand)]
     Secret(SecretCommands),
+
+    /// View organization audit log
+    #[command(subcommand)]
+    Audit(AuditCommands),
 }
 
 /// Organization management subcommands
@@ -214,6 +219,57 @@ pub enum ConfigCommands {
 pub enum SecretCommands {
     /// List user secrets (names only)
     List,
+}
+
+/// Audit log subcommands
+#[derive(Subcommand, Debug)]
+pub enum AuditCommands {
+    /// List audit log entries
+    #[command(after_help = "\
+Examples:
+  hawkop audit list --type SCAN_STARTED,SCAN_COMPLETED --since 7d
+  hawkop audit list --since 2024-12-01 --until 2024-12-31
+  hawkop audit list --org-type EXTERNAL_ALERTS_SENT,ORGANIZATION_CREATED")]
+    List {
+        #[command(flatten)]
+        filters: AuditFilterArgs,
+    },
+}
+
+/// Filter arguments for audit list command.
+#[derive(Args, Debug, Clone)]
+pub struct AuditFilterArgs {
+    /// Filter by activity type
+    #[arg(long = "type", short = 't', value_delimiter = ',')]
+    pub activity_type: Vec<String>,
+
+    /// Filter by org activity type
+    #[arg(long = "org-type", value_delimiter = ',')]
+    pub org_type: Vec<String>,
+
+    /// Filter by user name
+    #[arg(long, short = 'u')]
+    pub user: Option<String>,
+
+    /// Filter by user email
+    #[arg(long)]
+    pub email: Option<String>,
+
+    /// Start date (ISO or relative: 7d, 30d)
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// End date (ISO or relative: 7d, 30d)
+    #[arg(long)]
+    pub until: Option<String>,
+
+    /// Sort direction (asc, desc)
+    #[arg(long, value_enum, default_value = "desc", hide_possible_values = true, hide_default_value = true)]
+    pub sort_dir: SortDir,
+
+    /// Maximum results to return
+    #[arg(long, short = 'n')]
+    pub limit: Option<usize>,
 }
 
 /// Filter arguments for scan list command.

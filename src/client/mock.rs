@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 
 use super::pagination::PagedResponse;
 use super::{
-    Application, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult,
-    Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    Application, AuditFilterParams, AuditRecord, JwtToken, OASAsset, OrgPolicy, Organization,
+    Repository, ScanConfig, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -49,6 +49,8 @@ pub struct MockStackHawkClient {
     scan_configs: Arc<Mutex<Vec<ScanConfig>>>,
     /// Secrets to return from list_secrets
     secrets: Arc<Mutex<Vec<Secret>>>,
+    /// Audit records to return from list_audit
+    audit_records: Arc<Mutex<Vec<AuditRecord>>>,
     /// JWT to return from authenticate
     jwt: Arc<Mutex<Option<JwtToken>>>,
     /// Error to return (if any) - consumed on first use
@@ -71,6 +73,7 @@ impl Default for MockStackHawkClient {
             oas_assets: Arc::new(Mutex::new(Vec::new())),
             scan_configs: Arc::new(Mutex::new(Vec::new())),
             secrets: Arc::new(Mutex::new(Vec::new())),
+            audit_records: Arc::new(Mutex::new(Vec::new())),
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
@@ -93,6 +96,7 @@ pub struct CallCounts {
     pub list_oas: usize,
     pub list_scan_configs: usize,
     pub list_secrets: usize,
+    pub list_audit: usize,
 }
 
 impl MockStackHawkClient {
@@ -354,6 +358,19 @@ impl StackHawkApi for MockStackHawkClient {
         counts.list_secrets += 1;
 
         Ok(self.secrets.lock().await.clone())
+    }
+
+    async fn list_audit(
+        &self,
+        _org_id: &str,
+        _filters: Option<&AuditFilterParams>,
+    ) -> Result<Vec<AuditRecord>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_audit += 1;
+
+        Ok(self.audit_records.lock().await.clone())
     }
 }
 
