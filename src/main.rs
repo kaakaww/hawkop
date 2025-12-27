@@ -9,7 +9,10 @@ mod error;
 mod models;
 mod output;
 
-use cli::{AppCommands, Cli, Commands, OrgCommands, ScanCommands};
+use cli::{
+    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, ScanCommands, TeamCommands,
+    UserCommands,
+};
 use error::Result;
 
 #[tokio::main]
@@ -73,6 +76,39 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &filters,
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::User(user_cmd) => match user_cmd {
+            UserCommands::List { pagination } => {
+                cli::user::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Team(team_cmd) => match team_cmd {
+            TeamCommands::List { pagination } => {
+                cli::team::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Policy(policy_cmd) => match policy_cmd {
+            PolicyCommands::List { pagination } => {
+                cli::policy::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
                     &pagination,
                 )
                 .await

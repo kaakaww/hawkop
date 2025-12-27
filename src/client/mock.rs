@@ -8,7 +8,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::pagination::PagedResponse;
-use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
+use super::{
+    Application, JwtToken, OrgPolicy, Organization, ScanResult, StackHawkApi, StackHawkPolicy,
+    Team, User,
+};
 use crate::error::{ApiError, Result};
 
 /// Mock API client for testing.
@@ -30,6 +33,14 @@ pub struct MockStackHawkClient {
     apps: Arc<Mutex<Vec<Application>>>,
     /// Scans to return from list_scans
     scans: Arc<Mutex<Vec<ScanResult>>>,
+    /// Users to return from list_users
+    users: Arc<Mutex<Vec<User>>>,
+    /// Teams to return from list_teams
+    teams: Arc<Mutex<Vec<Team>>>,
+    /// StackHawk policies to return from list_stackhawk_policies
+    stackhawk_policies: Arc<Mutex<Vec<StackHawkPolicy>>>,
+    /// Org policies to return from list_org_policies
+    org_policies: Arc<Mutex<Vec<OrgPolicy>>>,
     /// JWT to return from authenticate
     jwt: Arc<Mutex<Option<JwtToken>>>,
     /// Error to return (if any) - consumed on first use
@@ -44,6 +55,10 @@ impl Default for MockStackHawkClient {
             orgs: Arc::new(Mutex::new(Vec::new())),
             apps: Arc::new(Mutex::new(Vec::new())),
             scans: Arc::new(Mutex::new(Vec::new())),
+            users: Arc::new(Mutex::new(Vec::new())),
+            teams: Arc::new(Mutex::new(Vec::new())),
+            stackhawk_policies: Arc::new(Mutex::new(Vec::new())),
+            org_policies: Arc::new(Mutex::new(Vec::new())),
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
@@ -58,6 +73,10 @@ pub struct CallCounts {
     pub list_orgs: usize,
     pub list_apps: usize,
     pub list_scans: usize,
+    pub list_users: usize,
+    pub list_teams: usize,
+    pub list_stackhawk_policies: usize,
+    pub list_org_policies: usize,
 }
 
 impl MockStackHawkClient {
@@ -82,6 +101,20 @@ impl MockStackHawkClient {
     #[allow(dead_code)]
     pub async fn with_scans(self, scans: Vec<ScanResult>) -> Self {
         *self.scans.lock().await = scans;
+        self
+    }
+
+    /// Configure users to return from list_users.
+    #[allow(dead_code)]
+    pub async fn with_users(self, users: Vec<User>) -> Self {
+        *self.users.lock().await = users;
+        self
+    }
+
+    /// Configure teams to return from list_teams.
+    #[allow(dead_code)]
+    pub async fn with_teams(self, teams: Vec<Team>) -> Self {
+        *self.teams.lock().await = teams;
         self
     }
 
@@ -199,6 +232,54 @@ impl StackHawkApi for MockStackHawkClient {
         let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
 
         Ok(PagedResponse::new(scans, Some(total_count), page_size, page_token))
+    }
+
+    async fn list_users(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<User>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_users += 1;
+
+        Ok(self.users.lock().await.clone())
+    }
+
+    async fn list_teams(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Team>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_teams += 1;
+
+        Ok(self.teams.lock().await.clone())
+    }
+
+    async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_stackhawk_policies += 1;
+
+        Ok(self.stackhawk_policies.lock().await.clone())
+    }
+
+    async fn list_org_policies(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<OrgPolicy>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_org_policies += 1;
+
+        Ok(self.org_policies.lock().await.clone())
     }
 }
 

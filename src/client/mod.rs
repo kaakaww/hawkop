@@ -67,6 +67,30 @@ pub trait StackHawkApi: Send + Sync {
         pagination: Option<&PaginationParams>,
         filters: Option<&ScanFilterParams>,
     ) -> Result<PagedResponse<ScanResult>>;
+
+    /// List users (members) for an organization with optional pagination
+    async fn list_users(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<User>>;
+
+    /// List teams for an organization with optional pagination
+    async fn list_teams(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<Team>>;
+
+    /// List all StackHawk preset policies (read-only)
+    async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>>;
+
+    /// List organization custom policies with optional pagination
+    async fn list_org_policies(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<OrgPolicy>>;
 }
 
 /// JWT authentication token
@@ -204,4 +228,108 @@ pub struct AlertStatusStats {
     /// Breakdown by severity
     #[serde(default)]
     pub severity_stats: std::collections::HashMap<String, u32>,
+}
+
+/// Organization member/user (wrapper for API response)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User {
+    /// User details from external field
+    pub external: UserExternal,
+}
+
+/// User details from the external field in API response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserExternal {
+    /// User ID
+    pub id: String,
+
+    /// User email address
+    pub email: String,
+
+    /// User's first name (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+
+    /// User's last name (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+
+    /// User's full name (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+}
+
+/// Organization team
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Team {
+    /// Team ID
+    pub id: String,
+
+    /// Team name
+    pub name: String,
+
+    /// Organization ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
+}
+
+/// Policy type (StackHawk preset or Organization custom)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PolicyType {
+    /// Preset policy created by StackHawk (read-only)
+    StackHawk,
+    /// Custom policy for an organization (editable)
+    Organization,
+}
+
+impl std::fmt::Display for PolicyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PolicyType::StackHawk => write!(f, "StackHawk"),
+            PolicyType::Organization => write!(f, "Organization"),
+        }
+    }
+}
+
+/// StackHawk scan policy (preset, read-only)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackHawkPolicy {
+    /// Policy ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Policy name (unique identifier)
+    pub name: String,
+
+    /// Human-readable display name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+
+    /// Policy description
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Organization scan policy (custom, editable)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgPolicy {
+    /// Policy name (unique identifier)
+    pub name: String,
+
+    /// Human-readable display name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+
+    /// Policy description
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Organization ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
 }

@@ -14,7 +14,10 @@ use serde::de::{self, Deserializer};
 
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
-use super::{Application, JwtToken, Organization, ScanResult, StackHawkApi};
+use super::{
+    Application, JwtToken, OrgPolicy, Organization, ScanResult, StackHawkApi, StackHawkPolicy,
+    Team, User,
+};
 use crate::error::{ApiError, Result};
 
 /// Deserialize a string to usize (API returns some numbers as strings)
@@ -542,6 +545,100 @@ impl StackHawkApi for StackHawkClient {
             params.page_size.unwrap_or(100),
             params.page.unwrap_or(0),
         ))
+    }
+
+    async fn list_users(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<User>> {
+        #[derive(Deserialize)]
+        struct UsersResponse {
+            users: Vec<User>,
+        }
+
+        let path = format!("/org/{}/members", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: UsersResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.users)
+    }
+
+    async fn list_teams(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Team>> {
+        #[derive(Deserialize)]
+        struct TeamsResponse {
+            teams: Vec<Team>,
+        }
+
+        let path = format!("/org/{}/teams", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: TeamsResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.teams)
+    }
+
+    async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PoliciesResponse {
+            scan_policies: Vec<StackHawkPolicy>,
+        }
+
+        let response: PoliciesResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, "/policy/all")
+            .await?;
+        Ok(response.scan_policies)
+    }
+
+    async fn list_org_policies(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<OrgPolicy>> {
+        #[derive(Deserialize)]
+        struct PoliciesResponse {
+            policies: Vec<OrgPolicy>,
+        }
+
+        let path = format!("/policy/{}/list", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: PoliciesResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.policies)
     }
 }
 

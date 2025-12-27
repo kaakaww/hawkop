@@ -7,7 +7,10 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tabled::Tabled;
 
-use crate::client::{Application, Organization, ScanResult};
+use crate::client::{
+    Application, OrgPolicy, Organization, PolicyType, ScanResult, StackHawkPolicy, Team, User,
+    UserExternal,
+};
 
 /// Organization display model for table/JSON output.
 #[derive(Debug, Clone, Tabled, Serialize)]
@@ -146,6 +149,128 @@ impl From<ScanResult> for ScanDisplay {
 impl From<&ScanResult> for ScanDisplay {
     fn from(result: &ScanResult) -> Self {
         ScanDisplay::from(result.clone())
+    }
+}
+
+/// User/member display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct UserDisplay {
+    /// User ID
+    #[tabled(rename = "USER ID")]
+    pub id: String,
+
+    /// User email
+    #[tabled(rename = "EMAIL")]
+    pub email: String,
+
+    /// User name (first + last)
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Role in organization
+    #[tabled(rename = "ROLE")]
+    pub role: String,
+}
+
+impl From<User> for UserDisplay {
+    fn from(user: User) -> Self {
+        UserDisplay::from(user.external)
+    }
+}
+
+impl From<&User> for UserDisplay {
+    fn from(user: &User) -> Self {
+        UserDisplay::from(user.external.clone())
+    }
+}
+
+impl From<UserExternal> for UserDisplay {
+    fn from(user: UserExternal) -> Self {
+        // Prefer full_name if available, otherwise combine first/last
+        let name = user.full_name.unwrap_or_else(|| {
+            match (&user.first_name, &user.last_name) {
+                (Some(first), Some(last)) => format!("{} {}", first, last),
+                (Some(first), None) => first.clone(),
+                (None, Some(last)) => last.clone(),
+                (None, None) => "--".to_string(),
+            }
+        });
+
+        Self {
+            id: user.id,
+            email: user.email,
+            name,
+            role: "--".to_string(), // Role not available in current API response
+        }
+    }
+}
+
+/// Team display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct TeamDisplay {
+    /// Team ID
+    #[tabled(rename = "TEAM ID")]
+    pub id: String,
+
+    /// Team name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+}
+
+impl From<Team> for TeamDisplay {
+    fn from(team: Team) -> Self {
+        Self {
+            id: team.id,
+            name: team.name,
+        }
+    }
+}
+
+impl From<&Team> for TeamDisplay {
+    fn from(team: &Team) -> Self {
+        TeamDisplay::from(team.clone())
+    }
+}
+
+/// Policy display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct PolicyDisplay {
+    /// Policy type (StackHawk or Organization)
+    #[tabled(rename = "TYPE")]
+    pub policy_type: String,
+
+    /// Human-readable display name
+    #[tabled(rename = "DISPLAY NAME")]
+    pub display_name: String,
+
+    /// Policy name (identifier)
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Policy description
+    #[tabled(rename = "DESCRIPTION")]
+    pub description: String,
+}
+
+impl PolicyDisplay {
+    /// Create from a StackHawk policy
+    pub fn from_stackhawk(policy: StackHawkPolicy) -> Self {
+        Self {
+            policy_type: PolicyType::StackHawk.to_string(),
+            display_name: policy.display_name.unwrap_or_else(|| "--".to_string()),
+            name: policy.name,
+            description: policy.description.unwrap_or_else(|| "--".to_string()),
+        }
+    }
+
+    /// Create from an organization policy
+    pub fn from_org(policy: OrgPolicy) -> Self {
+        Self {
+            policy_type: PolicyType::Organization.to_string(),
+            display_name: policy.display_name.unwrap_or_else(|| "--".to_string()),
+            name: policy.name,
+            description: policy.description.unwrap_or_else(|| "--".to_string()),
+        }
     }
 }
 

@@ -8,8 +8,11 @@ pub mod app;
 pub mod context;
 pub mod init;
 pub mod org;
+pub mod policy;
 pub mod scan;
 pub mod status;
+pub mod team;
+pub mod user;
 
 pub use context::CommandContext;
 
@@ -69,6 +72,18 @@ pub enum Commands {
     /// View and manage scans
     #[command(subcommand)]
     Scan(ScanCommands),
+
+    /// List organization users/members
+    #[command(subcommand)]
+    User(UserCommands),
+
+    /// List organization teams
+    #[command(subcommand)]
+    Team(TeamCommands),
+
+    /// Manage scan policies
+    #[command(subcommand)]
+    Policy(PolicyCommands),
 }
 
 /// Organization management subcommands
@@ -105,6 +120,36 @@ pub enum ScanCommands {
         #[command(flatten)]
         filters: ScanFilterArgs,
 
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// User management subcommands
+#[derive(Subcommand, Debug)]
+pub enum UserCommands {
+    /// List organization members
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Team management subcommands
+#[derive(Subcommand, Debug)]
+pub enum TeamCommands {
+    /// List organization teams
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Policy management subcommands
+#[derive(Subcommand, Debug)]
+pub enum PolicyCommands {
+    /// List scan policies (StackHawk preset and organization custom)
+    List {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
