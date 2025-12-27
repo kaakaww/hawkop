@@ -108,3 +108,140 @@ impl From<serde_yaml::Error> for ConfigError {
         ConfigError::ParseError(err.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_error_unauthorized_message() {
+        let err = ApiError::Unauthorized;
+        assert!(err.to_string().contains("hawkop init"));
+    }
+
+    #[test]
+    fn test_api_error_forbidden_message() {
+        let err = ApiError::Forbidden;
+        assert!(err.to_string().contains("permission"));
+    }
+
+    #[test]
+    fn test_api_error_not_found() {
+        let err = ApiError::NotFound("Application abc-123".to_string());
+        assert!(err.to_string().contains("abc-123"));
+    }
+
+    #[test]
+    fn test_api_error_rate_limit() {
+        let err = ApiError::RateLimit(Duration::from_secs(30));
+        let msg = err.to_string();
+        assert!(msg.contains("Rate limit"));
+        assert!(msg.contains("30"));
+    }
+
+    #[test]
+    fn test_api_error_bad_request() {
+        let err = ApiError::BadRequest("Invalid filter".to_string());
+        assert!(err.to_string().contains("Invalid filter"));
+    }
+
+    #[test]
+    fn test_api_error_server_error() {
+        let err = ApiError::ServerError("Internal error".to_string());
+        assert!(err.to_string().contains("Internal error"));
+    }
+
+    #[test]
+    fn test_api_error_network() {
+        let err = ApiError::Network("Connection refused".to_string());
+        assert!(err.to_string().contains("Connection refused"));
+    }
+
+    #[test]
+    fn test_api_error_invalid_response() {
+        let err = ApiError::InvalidResponse("Missing field 'id'".to_string());
+        assert!(err.to_string().contains("Missing field"));
+    }
+
+    #[test]
+    fn test_api_error_invalid_token() {
+        let err = ApiError::InvalidToken;
+        assert!(err.to_string().contains("JWT"));
+    }
+
+    #[test]
+    fn test_config_error_not_found() {
+        let err = ConfigError::NotFound;
+        assert!(err.to_string().contains("hawkop init"));
+    }
+
+    #[test]
+    fn test_config_error_parse() {
+        let err = ConfigError::ParseError("unexpected key".to_string());
+        assert!(err.to_string().contains("unexpected key"));
+    }
+
+    #[test]
+    fn test_config_error_invalid() {
+        let err = ConfigError::Invalid("bad format".to_string());
+        assert!(err.to_string().contains("bad format"));
+    }
+
+    #[test]
+    fn test_config_error_save() {
+        let err = ConfigError::SaveError("disk full".to_string());
+        assert!(err.to_string().contains("disk full"));
+    }
+
+    #[test]
+    fn test_config_error_missing_api_key() {
+        let err = ConfigError::MissingApiKey;
+        assert!(err.to_string().contains("hawkop init"));
+    }
+
+    #[test]
+    fn test_config_error_missing_org() {
+        let err = ConfigError::MissingOrgId;
+        assert!(err.to_string().contains("hawkop org set"));
+    }
+
+    #[test]
+    fn test_error_from_api_error() {
+        let api_err = ApiError::Unauthorized;
+        let err: Error = api_err.into();
+
+        match err {
+            Error::Api(ApiError::Unauthorized) => (),
+            _ => panic!("Expected Error::Api(ApiError::Unauthorized)"),
+        }
+    }
+
+    #[test]
+    fn test_error_from_config_error() {
+        let cfg_err = ConfigError::NotFound;
+        let err: Error = cfg_err.into();
+
+        match err {
+            Error::Config(ConfigError::NotFound) => (),
+            _ => panic!("Expected Error::Config(ConfigError::NotFound)"),
+        }
+    }
+
+    #[test]
+    fn test_error_other() {
+        let err = Error::Other("Custom error".to_string());
+        assert!(err.to_string().contains("Custom error"));
+    }
+
+    #[test]
+    fn test_config_error_from_yaml_error() {
+        let yaml_str = "invalid: [yaml: content";
+        let yaml_err = serde_yaml::from_str::<serde_yaml::Value>(yaml_str).unwrap_err();
+        let config_err: ConfigError = yaml_err.into();
+
+        match config_err {
+            ConfigError::ParseError(_) => (),
+            _ => panic!("Expected ConfigError::ParseError"),
+        }
+    }
+}

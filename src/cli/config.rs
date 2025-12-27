@@ -26,8 +26,10 @@ pub async fn list(
         configs
     };
 
-    let display_configs: Vec<ConfigDisplay> =
-        limited_configs.into_iter().map(ConfigDisplay::from).collect();
+    let display_configs: Vec<ConfigDisplay> = limited_configs
+        .into_iter()
+        .map(ConfigDisplay::from)
+        .collect();
     display_configs.print(ctx.format)?;
 
     Ok(())

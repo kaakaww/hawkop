@@ -1,6 +1,7 @@
 //! CLI command definitions and handlers
 
 use clap::{Args, Parser, Subcommand};
+pub use clap_complete::Shell;
 
 use crate::client::PaginationParams;
 
@@ -109,6 +110,31 @@ pub enum Commands {
     /// View organization audit log
     #[command(subcommand)]
     Audit(AuditCommands),
+
+    /// Generate shell completions
+    #[command(after_help = "\
+Setup:
+  bash:
+    hawkop completion bash > /etc/bash_completion.d/hawkop
+    # Or for user install:
+    hawkop completion bash >> ~/.bashrc
+
+  zsh:
+    hawkop completion zsh > \"${fpath[1]}/_hawkop\"
+    # Or add to ~/.zshrc:
+    eval \"$(hawkop completion zsh)\"
+
+  fish:
+    hawkop completion fish > ~/.config/fish/completions/hawkop.fish
+
+  powershell:
+    # Add to $PROFILE:
+    hawkop completion powershell | Out-String | Invoke-Expression")]
+    Completion {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 /// Organization management subcommands
@@ -264,7 +290,13 @@ pub struct AuditFilterArgs {
     pub until: Option<String>,
 
     /// Sort direction (asc, desc)
-    #[arg(long, value_enum, default_value = "desc", hide_possible_values = true, hide_default_value = true)]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "desc",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
     pub sort_dir: SortDir,
 
     /// Maximum results to return

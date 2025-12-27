@@ -942,4 +942,453 @@ mod tests {
         assert_eq!(display.name, "Cloud App");
         assert_eq!(display.cloud, "\u{2713}"); // ✓ for cloud apps
     }
+
+    #[test]
+    fn test_scan_display_from_scan_result() {
+        use crate::client::{Scan, ScanResult};
+
+        let result = ScanResult {
+            scan: Scan {
+                id: "scan-123".to_string(),
+                application_id: "app-456".to_string(),
+                application_name: "TestApp".to_string(),
+                env: "Production".to_string(),
+                status: "COMPLETED".to_string(),
+                timestamp: "1703721600000".to_string(), // 2023-12-28
+            },
+            scan_duration: Some("120".to_string()),
+            url_count: Some(50),
+            alert_stats: None,
+            severity_stats: None,
+        };
+
+        let display = ScanDisplay::from(result);
+
+        assert_eq!(display.id, "scan-123");
+        assert_eq!(display.app, "TestApp");
+        assert_eq!(display.env, "Production");
+        assert_eq!(display.status, "Complete");
+        assert_eq!(display.duration, "2m");
+        assert_eq!(display.findings, "--");
+    }
+
+    #[test]
+    fn test_scan_display_with_findings() {
+        use crate::client::{AlertStats, AlertStatusStats, Scan, ScanResult};
+        use std::collections::HashMap;
+
+        let mut high_severity = HashMap::new();
+        high_severity.insert("High".to_string(), 3);
+
+        let mut medium_severity = HashMap::new();
+        medium_severity.insert("Medium".to_string(), 5);
+
+        let result = ScanResult {
+            scan: Scan {
+                id: "scan-456".to_string(),
+                application_id: "app-789".to_string(),
+                application_name: "VulnApp".to_string(),
+                env: "Staging".to_string(),
+                status: "COMPLETED".to_string(),
+                timestamp: "1703721600000".to_string(),
+            },
+            scan_duration: Some("300".to_string()),
+            url_count: Some(100),
+            alert_stats: Some(AlertStats {
+                total_alerts: 8,
+                unique_alerts: 8,
+                alert_status_stats: vec![
+                    AlertStatusStats {
+                        alert_status: "UNKNOWN".to_string(),
+                        total_count: 3,
+                        severity_stats: high_severity,
+                    },
+                    AlertStatusStats {
+                        alert_status: "UNKNOWN".to_string(),
+                        total_count: 5,
+                        severity_stats: medium_severity,
+                    },
+                ],
+            }),
+            severity_stats: None,
+        };
+
+        let display = ScanDisplay::from(result);
+
+        assert_eq!(display.id, "scan-456");
+        assert_eq!(display.duration, "5m");
+        assert!(display.findings.contains("H")); // Has high findings
+        assert!(display.findings.contains("M")); // Has medium findings
+    }
+
+    #[test]
+    fn test_team_display_from_team() {
+        use crate::client::Team;
+
+        let team = Team {
+            id: "team-123".to_string(),
+            name: "Security Team".to_string(),
+            organization_id: Some("org-456".to_string()),
+        };
+
+        let display = TeamDisplay::from(team);
+
+        assert_eq!(display.id, "team-123");
+        assert_eq!(display.name, "Security Team");
+    }
+
+    #[test]
+    fn test_user_display_from_user() {
+        use crate::client::{User, UserExternal};
+
+        let user = User {
+            external: UserExternal {
+                id: "user-123".to_string(),
+                email: "test@example.com".to_string(),
+                first_name: Some("John".to_string()),
+                last_name: Some("Doe".to_string()),
+                full_name: Some("John Doe".to_string()),
+            },
+        };
+
+        let display = UserDisplay::from(user);
+
+        assert_eq!(display.id, "user-123");
+        assert_eq!(display.email, "test@example.com");
+        assert_eq!(display.name, "John Doe");
+    }
+
+    #[test]
+    fn test_user_display_without_full_name() {
+        use crate::client::{User, UserExternal};
+
+        let user = User {
+            external: UserExternal {
+                id: "user-456".to_string(),
+                email: "jane@example.com".to_string(),
+                first_name: Some("Jane".to_string()),
+                last_name: Some("Smith".to_string()),
+                full_name: None,
+            },
+        };
+
+        let display = UserDisplay::from(user);
+
+        assert_eq!(display.id, "user-456");
+        assert_eq!(display.email, "jane@example.com");
+        assert_eq!(display.name, "Jane Smith");
+    }
+
+    #[test]
+    fn test_policy_display_from_stackhawk_policy() {
+        use crate::client::{PolicyType, StackHawkPolicy};
+
+        let policy = StackHawkPolicy {
+            id: Some("policy-123".to_string()),
+            name: "api-scan".to_string(),
+            display_name: Some("API Scan Policy".to_string()),
+            description: Some("Default API scanning policy".to_string()),
+        };
+
+        let display = PolicyDisplay::from_stackhawk(policy);
+
+        assert_eq!(display.name, "api-scan");
+        assert_eq!(display.display_name, "API Scan Policy");
+        assert_eq!(display.policy_type, PolicyType::StackHawk.to_string());
+    }
+
+    #[test]
+    fn test_policy_display_from_org_policy() {
+        use crate::client::{OrgPolicy, PolicyType};
+
+        let policy = OrgPolicy {
+            name: "custom-policy".to_string(),
+            display_name: Some("Custom Scan Policy".to_string()),
+            description: Some("Organization custom policy".to_string()),
+            organization_id: Some("org-123".to_string()),
+        };
+
+        let display = PolicyDisplay::from_org(policy);
+
+        assert_eq!(display.name, "custom-policy");
+        assert_eq!(display.display_name, "Custom Scan Policy");
+        assert_eq!(display.policy_type, PolicyType::Organization.to_string());
+    }
+
+    #[test]
+    fn test_repo_display_from_repository() {
+        use crate::client::Repository;
+
+        let repo = Repository {
+            id: Some("repo-123".to_string()),
+            repo_source: Some("GITHUB".to_string()),
+            provider_org_name: Some("myorg".to_string()),
+            name: "my-api".to_string(),
+            open_api_spec_info: None,
+            has_generated_open_api_spec: true,
+            is_in_attack_surface: true,
+            framework_names: vec!["Spring".to_string()],
+            sensitive_data_tags: vec![],
+            last_commit_timestamp: None,
+            last_contributor: None,
+            commit_count: 10,
+            app_infos: vec![],
+            insights: vec![],
+        };
+
+        let display = RepoDisplay::from(repo);
+
+        assert_eq!(display.name, "my-api");
+        assert_eq!(display.provider, "GITHUB");
+        assert_eq!(display.attack_surface, "\u{2713}"); // ✓
+        assert_eq!(display.oas, "\u{2713}"); // ✓
+    }
+
+    #[test]
+    fn test_repo_display_not_in_attack_surface() {
+        use crate::client::Repository;
+
+        let repo = Repository {
+            id: Some("repo-456".to_string()),
+            repo_source: Some("GITLAB".to_string()),
+            provider_org_name: None,
+            name: "internal-tool".to_string(),
+            open_api_spec_info: None,
+            has_generated_open_api_spec: false,
+            is_in_attack_surface: false,
+            framework_names: vec![],
+            sensitive_data_tags: vec![],
+            last_commit_timestamp: None,
+            last_contributor: None,
+            commit_count: 0,
+            app_infos: vec![],
+            insights: vec![],
+        };
+
+        let display = RepoDisplay::from(repo);
+
+        assert_eq!(display.name, "internal-tool");
+        assert_eq!(display.attack_surface, ""); // Empty for false
+        assert_eq!(display.oas, ""); // Empty for false
+    }
+
+    #[test]
+    fn test_oas_display_from_oas_asset() {
+        use crate::client::OASAsset;
+
+        let oas = OASAsset {
+            oas_id: "oas-123".to_string(),
+            repository_id: Some("repo-456".to_string()),
+            repository_name: Some("my-api".to_string()),
+            source_root_path: Some("/src/main".to_string()),
+        };
+
+        let display = OASDisplay::from(oas);
+
+        assert_eq!(display.id, "oas-123");
+        assert_eq!(display.repo, "my-api");
+        assert_eq!(display.path, "/src/main");
+    }
+
+    #[test]
+    fn test_oas_display_without_repo() {
+        use crate::client::OASAsset;
+
+        let oas = OASAsset {
+            oas_id: "oas-789".to_string(),
+            repository_id: None,
+            repository_name: None,
+            source_root_path: None,
+        };
+
+        let display = OASDisplay::from(oas);
+
+        assert_eq!(display.id, "oas-789");
+        assert_eq!(display.repo, "--");
+        assert_eq!(display.path, "--");
+    }
+
+    #[test]
+    fn test_config_display_from_scan_config() {
+        use crate::client::ScanConfig;
+
+        let config = ScanConfig {
+            name: "prod-config".to_string(),
+            description: Some("Production scan configuration".to_string()),
+            organization_id: Some("org-123".to_string()),
+        };
+
+        let display = ConfigDisplay::from(config);
+
+        assert_eq!(display.name, "prod-config");
+        assert_eq!(display.description, "Production scan configuration");
+    }
+
+    #[test]
+    fn test_config_display_without_description() {
+        use crate::client::ScanConfig;
+
+        let config = ScanConfig {
+            name: "minimal-config".to_string(),
+            description: None,
+            organization_id: None,
+        };
+
+        let display = ConfigDisplay::from(config);
+
+        assert_eq!(display.name, "minimal-config");
+        assert_eq!(display.description, "--");
+    }
+
+    #[test]
+    fn test_secret_display_from_secret() {
+        use crate::client::Secret;
+
+        let secret = Secret {
+            name: "API_KEY".to_string(),
+        };
+
+        let display = SecretDisplay::from(secret);
+
+        assert_eq!(display.name, "API_KEY");
+    }
+
+    #[test]
+    fn test_audit_display_from_audit_record() {
+        use crate::client::AuditRecord;
+
+        let record = AuditRecord {
+            id: "audit-123".to_string(),
+            user_activity_type: Some("SCAN_STARTED".to_string()),
+            organization_activity_type: None,
+            organization_id: "org-456".to_string(),
+            user_id: "user-789".to_string(),
+            user_name: "John Doe".to_string(),
+            user_email: "john@example.com".to_string(),
+            payload: r#"{"appName":"TestApp","envName":"Production"}"#.to_string(),
+            timestamp: "1703721600000".to_string(),
+            user_ip_addr: None,
+        };
+
+        let display = AuditDisplay::from(record);
+
+        assert_eq!(display.activity_type, "SCAN_STARTED");
+        assert_eq!(display.user, "John Doe");
+        assert_eq!(display.email, "john@example.com");
+        assert!(display.details.contains("TestApp"));
+    }
+
+    #[test]
+    fn test_audit_display_org_activity() {
+        use crate::client::AuditRecord;
+
+        let record = AuditRecord {
+            id: "audit-456".to_string(),
+            user_activity_type: None,
+            organization_activity_type: Some("EXTERNAL_ALERTS_SENT".to_string()),
+            organization_id: "org-789".to_string(),
+            user_id: "".to_string(),
+            user_name: "".to_string(),
+            user_email: "".to_string(),
+            payload: r#"{"integration":"JIRA"}"#.to_string(),
+            timestamp: "1703721600000".to_string(),
+            user_ip_addr: None,
+        };
+
+        let display = AuditDisplay::from(record);
+
+        assert_eq!(display.activity_type, "EXTERNAL_ALERTS_SENT");
+        assert_eq!(display.user, "--");
+        assert_eq!(display.email, "--");
+        assert!(display.details.contains("JIRA"));
+    }
+
+    #[test]
+    fn test_format_duration_seconds() {
+        assert_eq!(format_duration(45.0), "45s");
+        assert_eq!(format_duration(0.0), "0s");
+    }
+
+    #[test]
+    fn test_format_duration_minutes() {
+        assert_eq!(format_duration(60.0), "1m");
+        assert_eq!(format_duration(90.0), "1m 30s");
+        assert_eq!(format_duration(125.0), "2m 5s");
+    }
+
+    #[test]
+    fn test_format_duration_hours() {
+        assert_eq!(format_duration(3600.0), "1h");
+        assert_eq!(format_duration(3660.0), "1h 1m");
+        assert_eq!(format_duration(7320.0), "2h 2m");
+    }
+
+    #[test]
+    fn test_format_findings_no_stats() {
+        use crate::client::{Scan, ScanResult};
+
+        let result = ScanResult {
+            scan: Scan {
+                id: "scan-1".to_string(),
+                application_id: "app-1".to_string(),
+                application_name: "App".to_string(),
+                env: "Dev".to_string(),
+                status: "COMPLETED".to_string(),
+                timestamp: "1703721600000".to_string(),
+            },
+            scan_duration: None,
+            url_count: None,
+            alert_stats: None,
+            severity_stats: None,
+        };
+
+        assert_eq!(format_findings(&result), "--");
+    }
+
+    #[test]
+    fn test_format_findings_with_triaged() {
+        use crate::client::{AlertStats, AlertStatusStats, Scan, ScanResult};
+        use std::collections::HashMap;
+
+        let mut high_new = HashMap::new();
+        high_new.insert("High".to_string(), 2);
+
+        let mut high_triaged = HashMap::new();
+        high_triaged.insert("High".to_string(), 1);
+
+        let result = ScanResult {
+            scan: Scan {
+                id: "scan-2".to_string(),
+                application_id: "app-2".to_string(),
+                application_name: "App".to_string(),
+                env: "Prod".to_string(),
+                status: "COMPLETED".to_string(),
+                timestamp: "1703721600000".to_string(),
+            },
+            scan_duration: None,
+            url_count: None,
+            alert_stats: Some(AlertStats {
+                total_alerts: 3,
+                unique_alerts: 3,
+                alert_status_stats: vec![
+                    AlertStatusStats {
+                        alert_status: "UNKNOWN".to_string(),
+                        total_count: 2,
+                        severity_stats: high_new,
+                    },
+                    AlertStatusStats {
+                        alert_status: "PROMOTED".to_string(),
+                        total_count: 1,
+                        severity_stats: high_triaged,
+                    },
+                ],
+            }),
+            severity_stats: None,
+        };
+
+        let findings = format_findings(&result);
+        assert!(findings.contains("H")); // Has high findings
+        assert!(findings.contains("2")); // 2 new
+        assert!(findings.contains("1")); // 1 triaged
+    }
 }

@@ -1,6 +1,7 @@
 //! HawkOp CLI - Professional companion for the StackHawk DAST platform
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 
 mod cli;
 mod client;
@@ -165,6 +166,10 @@ async fn run() -> Result<()> {
                 .await
             }
         },
+        Commands::Completion { shell } => {
+            generate(shell, &mut Cli::command(), "hawkop", &mut std::io::stdout());
+            Ok(())
+        }
     };
 
     // Log debug info on completion

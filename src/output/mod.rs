@@ -54,3 +54,77 @@ where
         self.as_slice().format(format)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+    use tabled::Tabled;
+
+    #[derive(Debug, Tabled, Serialize, Clone)]
+    struct TestItem {
+        #[tabled(rename = "ID")]
+        id: String,
+        #[tabled(rename = "NAME")]
+        name: String,
+    }
+
+    #[test]
+    fn test_formattable_table_format() {
+        let items = vec![TestItem {
+            id: "1".to_string(),
+            name: "Test".to_string(),
+        }];
+
+        let result = items.format(OutputFormat::Table).unwrap();
+
+        assert!(result.contains("ID"));
+        assert!(result.contains("NAME"));
+        assert!(result.contains("Test"));
+    }
+
+    #[test]
+    fn test_formattable_json_format() {
+        let items = vec![TestItem {
+            id: "1".to_string(),
+            name: "Test".to_string(),
+        }];
+
+        let result = items.format(OutputFormat::Json).unwrap();
+
+        assert!(result.contains("\"data\""));
+        assert!(result.contains("\"id\": \"1\""));
+        assert!(result.contains("\"name\": \"Test\""));
+    }
+
+    #[test]
+    fn test_formattable_slice() {
+        let items = vec![
+            TestItem {
+                id: "1".to_string(),
+                name: "First".to_string(),
+            },
+            TestItem {
+                id: "2".to_string(),
+                name: "Second".to_string(),
+            },
+        ];
+
+        let slice: &[TestItem] = &items;
+        let result = slice.format(OutputFormat::Table).unwrap();
+
+        assert!(result.contains("First"));
+        assert!(result.contains("Second"));
+    }
+
+    #[test]
+    fn test_formattable_empty_vec() {
+        let items: Vec<TestItem> = vec![];
+
+        let table_result = items.format(OutputFormat::Table).unwrap();
+        assert_eq!(table_result, "No results found.");
+
+        let json_result = items.format(OutputFormat::Json).unwrap();
+        assert!(json_result.contains("\"data\": []"));
+    }
+}

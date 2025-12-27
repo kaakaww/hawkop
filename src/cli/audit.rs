@@ -21,13 +21,9 @@ pub async fn list(
     let api_filters = build_filter_params(filters)?;
 
     let org_id = ctx.require_org_id()?;
-    let records = ctx
-        .client
-        .list_audit(org_id, Some(&api_filters))
-        .await?;
+    let records = ctx.client.list_audit(org_id, Some(&api_filters)).await?;
 
-    let display_records: Vec<AuditDisplay> =
-        records.into_iter().map(AuditDisplay::from).collect();
+    let display_records: Vec<AuditDisplay> = records.into_iter().map(AuditDisplay::from).collect();
     display_records.print(ctx.format)?;
 
     Ok(())
@@ -93,36 +89,34 @@ fn parse_date_to_millis(date_str: &str) -> Result<i64> {
     let now = Utc::now();
 
     // Try relative format first (e.g., "7d", "30d", "1w")
-    if let Some(stripped) = date_str.strip_suffix('d') {
-        if let Ok(days) = stripped.parse::<i64>() {
-            let target = now - Duration::days(days);
-            return Ok(target.timestamp_millis());
-        }
+    if let Some(stripped) = date_str.strip_suffix('d')
+        && let Ok(days) = stripped.parse::<i64>()
+    {
+        let target = now - Duration::days(days);
+        return Ok(target.timestamp_millis());
     }
 
-    if let Some(stripped) = date_str.strip_suffix('w') {
-        if let Ok(weeks) = stripped.parse::<i64>() {
-            let target = now - Duration::weeks(weeks);
-            return Ok(target.timestamp_millis());
-        }
+    if let Some(stripped) = date_str.strip_suffix('w')
+        && let Ok(weeks) = stripped.parse::<i64>()
+    {
+        let target = now - Duration::weeks(weeks);
+        return Ok(target.timestamp_millis());
     }
 
-    if let Some(stripped) = date_str.strip_suffix('h') {
-        if let Ok(hours) = stripped.parse::<i64>() {
-            let target = now - Duration::hours(hours);
-            return Ok(target.timestamp_millis());
-        }
+    if let Some(stripped) = date_str.strip_suffix('h')
+        && let Ok(hours) = stripped.parse::<i64>()
+    {
+        let target = now - Duration::hours(hours);
+        return Ok(target.timestamp_millis());
     }
 
     // Try ISO date format (YYYY-MM-DD)
-    if date_str.len() == 10 && date_str.chars().nth(4) == Some('-') {
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-            let datetime = date
-                .and_hms_opt(0, 0, 0)
-                .expect("valid time")
-                .and_utc();
-            return Ok(datetime.timestamp_millis());
-        }
+    if date_str.len() == 10
+        && date_str.chars().nth(4) == Some('-')
+        && let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+    {
+        let datetime = date.and_hms_opt(0, 0, 0).expect("valid time").and_utc();
+        return Ok(datetime.timestamp_millis());
     }
 
     // Try ISO datetime format
