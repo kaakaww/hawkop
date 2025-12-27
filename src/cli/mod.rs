@@ -5,12 +5,15 @@ use clap::{Args, Parser, Subcommand};
 use crate::client::PaginationParams;
 
 pub mod app;
+pub mod config;
 pub mod context;
 pub mod init;
+pub mod oas;
 pub mod org;
 pub mod policy;
 pub mod repo;
 pub mod scan;
+pub mod secret;
 pub mod status;
 pub mod team;
 pub mod user;
@@ -89,6 +92,18 @@ pub enum Commands {
     /// List repositories in attack surface
     #[command(subcommand)]
     Repo(RepoCommands),
+
+    /// List hosted OpenAPI specifications
+    #[command(subcommand)]
+    Oas(OasCommands),
+
+    /// List scan configurations
+    #[command(subcommand)]
+    Config(ConfigCommands),
+
+    /// List user secrets
+    #[command(subcommand)]
+    Secret(SecretCommands),
 }
 
 /// Organization management subcommands
@@ -112,6 +127,10 @@ pub enum OrgCommands {
 pub enum AppCommands {
     /// List all applications in the current organization
     List {
+        /// Filter by application type (cloud, standard)
+        #[arg(long = "type", short = 't')]
+        app_type: Option<String>,
+
         #[command(flatten)]
         pagination: PaginationArgs,
     },
@@ -168,6 +187,33 @@ pub enum RepoCommands {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
+}
+
+/// OAS management subcommands
+#[derive(Subcommand, Debug)]
+pub enum OasCommands {
+    /// List hosted OpenAPI specifications
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Configuration management subcommands
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    /// List scan configurations
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Secret management subcommands
+#[derive(Subcommand, Debug)]
+pub enum SecretCommands {
+    /// List user secrets (names only)
+    List,
 }
 
 /// Filter arguments for scan list command.

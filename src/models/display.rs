@@ -8,8 +8,8 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::client::{
-    Application, OrgPolicy, Organization, PolicyType, Repository, ScanResult, StackHawkPolicy,
-    Team, User, UserExternal,
+    Application, OASAsset, OrgPolicy, Organization, PolicyType, Repository, ScanConfig, ScanResult,
+    Secret, StackHawkPolicy, Team, User, UserExternal,
 };
 
 /// Organization display model for table/JSON output.
@@ -45,6 +45,10 @@ impl From<&Organization> for OrgDisplay {
 /// Application display model for table/JSON output.
 #[derive(Debug, Clone, Tabled, Serialize)]
 pub struct AppDisplay {
+    /// Whether this is a cloud/hosted app
+    #[tabled(rename = "CLOUD")]
+    pub cloud: String,
+
     /// Application ID
     #[tabled(rename = "APP ID")]
     pub id: String,
@@ -56,7 +60,18 @@ pub struct AppDisplay {
 
 impl From<Application> for AppDisplay {
     fn from(app: Application) -> Self {
+        let is_cloud = app
+            .application_type
+            .as_ref()
+            .map(|t| t == "CLOUD")
+            .unwrap_or(false);
+
         Self {
+            cloud: if is_cloud {
+                "\u{2713}".to_string() // ✓
+            } else {
+                "".to_string()
+            },
             id: app.id,
             name: app.name,
         }
@@ -65,7 +80,18 @@ impl From<Application> for AppDisplay {
 
 impl From<&Application> for AppDisplay {
     fn from(app: &Application) -> Self {
+        let is_cloud = app
+            .application_type
+            .as_ref()
+            .map(|t| t == "CLOUD")
+            .unwrap_or(false);
+
         Self {
+            cloud: if is_cloud {
+                "\u{2713}".to_string() // ✓
+            } else {
+                "".to_string()
+            },
             id: app.id.clone(),
             name: app.name.clone(),
         }
@@ -326,18 +352,18 @@ impl From<Repository> for RepoDisplay {
         // Format git org
         let git_org = repo.provider_org_name.unwrap_or_else(|| "--".to_string());
 
-        // Format attack surface boolean (✓/✗)
+        // Format attack surface boolean (✓ or empty)
         let attack_surface = if repo.is_in_attack_surface {
             "\u{2713}".to_string() // ✓
         } else {
-            "\u{2717}".to_string() // ✗
+            "".to_string()
         };
 
-        // Format OAS boolean (✓/✗)
+        // Format OAS boolean (✓ or empty)
         let oas = if repo.has_generated_open_api_spec {
             "\u{2713}".to_string() // ✓
         } else {
-            "\u{2717}".to_string() // ✗
+            "".to_string()
         };
 
         // Format sensitive data tags (comma-separated, truncated)
@@ -394,6 +420,90 @@ impl From<Repository> for RepoDisplay {
 impl From<&Repository> for RepoDisplay {
     fn from(repo: &Repository) -> Self {
         RepoDisplay::from(repo.clone())
+    }
+}
+
+/// OpenAPI specification asset display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct OASDisplay {
+    /// OAS ID
+    #[tabled(rename = "OAS ID")]
+    pub id: String,
+
+    /// Repository name
+    #[tabled(rename = "REPO")]
+    pub repo: String,
+
+    /// Source root path
+    #[tabled(rename = "PATH")]
+    pub path: String,
+}
+
+impl From<OASAsset> for OASDisplay {
+    fn from(oas: OASAsset) -> Self {
+        Self {
+            id: oas.oas_id,
+            repo: oas.repository_name.unwrap_or_else(|| "--".to_string()),
+            path: oas.source_root_path.unwrap_or_else(|| "--".to_string()),
+        }
+    }
+}
+
+impl From<&OASAsset> for OASDisplay {
+    fn from(oas: &OASAsset) -> Self {
+        OASDisplay::from(oas.clone())
+    }
+}
+
+/// Scan configuration display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct ConfigDisplay {
+    /// Configuration name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Configuration description
+    #[tabled(rename = "DESCRIPTION")]
+    pub description: String,
+}
+
+impl From<ScanConfig> for ConfigDisplay {
+    fn from(config: ScanConfig) -> Self {
+        let description = config
+            .description
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| "--".to_string());
+
+        Self {
+            name: config.name,
+            description,
+        }
+    }
+}
+
+impl From<&ScanConfig> for ConfigDisplay {
+    fn from(config: &ScanConfig) -> Self {
+        ConfigDisplay::from(config.clone())
+    }
+}
+
+/// Secret display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct SecretDisplay {
+    /// Secret name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+}
+
+impl From<Secret> for SecretDisplay {
+    fn from(secret: Secret) -> Self {
+        Self { name: secret.name }
+    }
+}
+
+impl From<&Secret> for SecretDisplay {
+    fn from(secret: &Secret) -> Self {
+        SecretDisplay::from(secret.clone())
     }
 }
 
@@ -621,12 +731,15 @@ mod tests {
             risk_level: None,
             status: None,
             organization_id: None,
+            application_type: None,
+            cloud_scan_target: None,
         };
 
         let display = AppDisplay::from(app);
 
         assert_eq!(display.id, "app-789");
         assert_eq!(display.name, "Test App");
+        assert_eq!(display.cloud, ""); // Not a cloud app
     }
 
     #[test]
@@ -638,11 +751,39 @@ mod tests {
             risk_level: Some("High".to_string()),
             status: Some("Active".to_string()),
             organization_id: Some("org-123".to_string()),
+            application_type: None,
+            cloud_scan_target: None,
         };
 
         let display = AppDisplay::from(&app);
 
         assert_eq!(display.id, "app-abc");
         assert_eq!(display.name, "Another App");
+        assert_eq!(display.cloud, ""); // Not a cloud app
+    }
+
+    #[test]
+    fn test_app_display_cloud_app() {
+        use crate::client::CloudScanTarget;
+
+        let app = Application {
+            id: "cloud-app-123".to_string(),
+            name: "Cloud App".to_string(),
+            env: None,
+            risk_level: None,
+            status: None,
+            organization_id: None,
+            application_type: Some("CLOUD".to_string()),
+            cloud_scan_target: Some(CloudScanTarget {
+                target_url: Some("https://example.com".to_string()),
+                is_domain_verified: true,
+            }),
+        };
+
+        let display = AppDisplay::from(app);
+
+        assert_eq!(display.id, "cloud-app-123");
+        assert_eq!(display.name, "Cloud App");
+        assert_eq!(display.cloud, "\u{2713}"); // ✓ for cloud apps
     }
 }

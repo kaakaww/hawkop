@@ -15,8 +15,8 @@ use serde::de::{self, Deserializer};
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use super::{
-    Application, JwtToken, OrgPolicy, Organization, Repository, ScanResult, StackHawkApi,
-    StackHawkPolicy, Team, User,
+    Application, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult,
+    Secret, StackHawkApi, StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -416,8 +416,11 @@ impl StackHawkApi for StackHawkClient {
         let path = format!("/org/{}/apps", org_id);
 
         // Build query params from pagination
-        let query_params: Vec<(&str, String)> =
+        let mut query_params: Vec<(&str, String)> =
             pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        // Include all application types (API defaults to STANDARD only)
+        query_params.push(("applicationTypes", "STANDARD,CLOUD".to_string()));
 
         let response: AppsResponse = self
             .request_with_query(
@@ -483,7 +486,10 @@ impl StackHawkApi for StackHawkClient {
         // Use provided pagination or default
         let default_params = super::PaginationParams::new().page_size(100);
         let params = pagination.unwrap_or(&default_params);
-        let query_params: Vec<(&str, String)> = params.to_query_params();
+        let mut query_params: Vec<(&str, String)> = params.to_query_params();
+
+        // Include all application types (API defaults to STANDARD only)
+        query_params.push(("applicationTypes", "STANDARD,CLOUD".to_string()));
 
         let response: AppsPagedResponse = self
             .request_with_query(
@@ -665,6 +671,75 @@ impl StackHawkApi for StackHawkClient {
             )
             .await?;
         Ok(response.repositories)
+    }
+
+    async fn list_oas(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<OASAsset>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct OASResponse {
+            oas_files: Vec<OASAsset>,
+        }
+
+        let path = format!("/oas/{}/list", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: OASResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.oas_files)
+    }
+
+    async fn list_scan_configs(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<ScanConfig>> {
+        #[derive(Deserialize)]
+        struct ConfigResponse {
+            configs: Vec<ScanConfig>,
+        }
+
+        let path = format!("/configuration/{}/list", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: ConfigResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.configs)
+    }
+
+    async fn list_secrets(&self) -> Result<Vec<Secret>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SecretsResponse {
+            user_secrets: Vec<Secret>,
+        }
+
+        // Note: This is a user-scoped endpoint, not org-scoped
+        let response: SecretsResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, "/user/secret/list")
+            .await?;
+        Ok(response.user_secrets)
     }
 }
 

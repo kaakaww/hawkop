@@ -98,6 +98,23 @@ pub trait StackHawkApi: Send + Sync {
         org_id: &str,
         pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Repository>>;
+
+    /// List OpenAPI specification assets for an organization
+    async fn list_oas(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<OASAsset>>;
+
+    /// List scan configurations for an organization
+    async fn list_scan_configs(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<ScanConfig>>;
+
+    /// List user secrets (user-scoped, not org-scoped)
+    async fn list_secrets(&self) -> Result<Vec<Secret>>;
 }
 
 /// JWT authentication token
@@ -154,6 +171,27 @@ pub struct Application {
     /// Organization ID (optional)
     #[serde(skip_serializing_if = "Option::is_none", rename = "organizationId")]
     pub organization_id: Option<String>,
+
+    /// Application type: "STANDARD" or "CLOUD"
+    #[serde(skip_serializing_if = "Option::is_none", rename = "applicationType")]
+    pub application_type: Option<String>,
+
+    /// Cloud scan target (only for CLOUD apps)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cloudScanTarget")]
+    pub cloud_scan_target: Option<CloudScanTarget>,
+}
+
+/// Cloud scan target for hosted/cloud applications
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudScanTarget {
+    /// Target URL to scan
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_url: Option<String>,
+
+    /// Whether the domain has been verified
+    #[serde(default)]
+    pub is_domain_verified: bool,
 }
 
 /// Scan result from the API
@@ -457,4 +495,51 @@ pub struct RepoInsight {
     /// Insight value
     #[serde(default)]
     pub value: String,
+}
+
+/// Hosted OpenAPI specification asset
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OASAsset {
+    /// Unique OAS ID
+    #[serde(default)]
+    pub oas_id: String,
+
+    /// Repository ID this OAS belongs to
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<String>,
+
+    /// Repository name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_name: Option<String>,
+
+    /// Source root path in repository
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_root_path: Option<String>,
+}
+
+/// Organization scan configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanConfig {
+    /// Configuration name
+    #[serde(default)]
+    pub name: String,
+
+    /// Configuration description
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Organization ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
+}
+
+/// User secret (name only - values are not returned by list API)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Secret {
+    /// Secret name
+    #[serde(default)]
+    pub name: String,
 }

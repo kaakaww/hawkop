@@ -10,8 +10,8 @@ mod models;
 mod output;
 
 use cli::{
-    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, RepoCommands, ScanCommands,
-    TeamCommands, UserCommands,
+    AppCommands, Cli, Commands, ConfigCommands, OasCommands, OrgCommands, PolicyCommands,
+    RepoCommands, ScanCommands, SecretCommands, TeamCommands, UserCommands,
 };
 use error::Result;
 
@@ -56,11 +56,15 @@ async fn run() -> Result<()> {
             }
         },
         Commands::App(app_cmd) => match app_cmd {
-            AppCommands::List { pagination } => {
+            AppCommands::List {
+                app_type,
+                pagination,
+            } => {
                 cli::app::list(
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
+                    app_type.as_deref(),
                     &pagination,
                 )
                 .await
@@ -124,6 +128,31 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
+        },
+        Commands::Oas(oas_cmd) => match oas_cmd {
+            OasCommands::List { pagination } => {
+                cli::oas::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Config(config_cmd) => match config_cmd {
+            ConfigCommands::List { pagination } => {
+                cli::config::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Secret(secret_cmd) => match secret_cmd {
+            SecretCommands::List => cli::secret::list(cli.format, cli.config.as_deref()).await,
         },
     };
 
