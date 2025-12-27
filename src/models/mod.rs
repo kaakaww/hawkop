@@ -5,4 +5,6 @@
 
 pub mod display;
 
-pub use display::{AppDisplay, OrgDisplay};
+pub use display::{
+    AppDisplay, OrgDisplay, PolicyDisplay, RepoDisplay, ScanDisplay, TeamDisplay, UserDisplay,
+};

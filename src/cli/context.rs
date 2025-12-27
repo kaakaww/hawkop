@@ -3,6 +3,8 @@
 //! Provides a unified context for command execution, eliminating boilerplate
 //! for config loading, authentication validation, and client initialization.
 
+use std::sync::Arc;
+
 use crate::cli::OutputFormat;
 use crate::client::{JwtToken, StackHawkApi, StackHawkClient};
 use crate::config::Config;
@@ -12,14 +14,14 @@ use crate::error::Result;
 ///
 /// This struct encapsulates all shared state needed by commands, providing:
 /// - Loaded and validated configuration
-/// - Authenticated API client with JWT set
+/// - Authenticated API client with JWT set (wrapped in Arc for parallel requests)
 /// - Output format preference
 /// - Resolved organization ID (from config or override)
 pub struct CommandContext {
     /// Loaded and validated configuration
     pub config: Config,
-    /// Authenticated API client
-    pub client: StackHawkClient,
+    /// Authenticated API client (Arc-wrapped for parallel request support)
+    pub client: Arc<StackHawkClient>,
     /// Output format preference
     pub format: OutputFormat,
 }
@@ -54,7 +56,7 @@ impl CommandContext {
             config.org_id = Some(org.to_string());
         }
 
-        let client = StackHawkClient::new(config.api_key.clone())?;
+        let client = Arc::new(StackHawkClient::new(config.api_key.clone())?);
 
         // Use cached JWT if valid, otherwise authenticate and cache
         if !config.is_token_expired() {

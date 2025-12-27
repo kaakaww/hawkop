@@ -9,7 +9,10 @@ mod error;
 mod models;
 mod output;
 
-use cli::{AppCommands, Cli, Commands, OrgCommands};
+use cli::{
+    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, RepoCommands, ScanCommands,
+    TeamCommands, UserCommands,
+};
 use error::Result;
 
 #[tokio::main]
@@ -24,13 +27,18 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     let debug = cli.debug;
 
-    // Print debug info if requested
+    // Initialize logging if debug mode is enabled
     if debug {
-        eprintln!("[DEBUG] HawkOp v{}", env!("CARGO_PKG_VERSION"));
-        eprintln!("[DEBUG] Command: {:?}", cli.command);
-        eprintln!("[DEBUG] Format: {:?}", cli.format);
-        eprintln!("[DEBUG] Config path: {:?}", cli.config);
-        eprintln!("[DEBUG] Org override: {:?}", cli.org);
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Debug)
+            .format_timestamp_millis()
+            .init();
+
+        log::debug!("HawkOp v{}", env!("CARGO_PKG_VERSION"));
+        log::debug!("Command: {:?}", cli.command);
+        log::debug!("Format: {:?}", cli.format);
+        log::debug!("Config path: {:?}", cli.config);
+        log::debug!("Org override: {:?}", cli.org);
     }
 
     let result = match cli.command {
@@ -58,14 +66,73 @@ async fn run() -> Result<()> {
                 .await
             }
         },
+        Commands::Scan(scan_cmd) => match scan_cmd {
+            ScanCommands::List {
+                filters,
+                pagination,
+            } => {
+                cli::scan::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &filters,
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::User(user_cmd) => match user_cmd {
+            UserCommands::List { pagination } => {
+                cli::user::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Team(team_cmd) => match team_cmd {
+            TeamCommands::List { pagination } => {
+                cli::team::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Policy(policy_cmd) => match policy_cmd {
+            PolicyCommands::List { pagination } => {
+                cli::policy::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Repo(repo_cmd) => match repo_cmd {
+            RepoCommands::List { pagination } => {
+                cli::repo::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
     };
 
-    // Print debug info on error
+    // Log debug info on completion
     if debug {
         if let Err(ref e) = result {
-            eprintln!("[DEBUG] Error: {:?}", e);
+            log::debug!("Error: {:?}", e);
         } else {
-            eprintln!("[DEBUG] Command completed successfully");
+            log::debug!("Command completed successfully");
         }
     }
 
