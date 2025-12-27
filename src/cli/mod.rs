@@ -9,6 +9,7 @@ pub mod context;
 pub mod init;
 pub mod org;
 pub mod policy;
+pub mod repo;
 pub mod scan;
 pub mod status;
 pub mod team;
@@ -84,6 +85,10 @@ pub enum Commands {
     /// Manage scan policies
     #[command(subcommand)]
     Policy(PolicyCommands),
+
+    /// List repositories in attack surface
+    #[command(subcommand)]
+    Repo(RepoCommands),
 }
 
 /// Organization management subcommands
@@ -149,6 +154,16 @@ pub enum TeamCommands {
 #[derive(Subcommand, Debug)]
 pub enum PolicyCommands {
     /// List scan policies (StackHawk preset and organization custom)
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Repository management subcommands
+#[derive(Subcommand, Debug)]
+pub enum RepoCommands {
+    /// List repositories in the organization's attack surface
     List {
         #[command(flatten)]
         pagination: PaginationArgs,

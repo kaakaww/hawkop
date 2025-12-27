@@ -10,8 +10,8 @@ mod models;
 mod output;
 
 use cli::{
-    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, ScanCommands, TeamCommands,
-    UserCommands,
+    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, RepoCommands, ScanCommands,
+    TeamCommands, UserCommands,
 };
 use error::Result;
 
@@ -106,6 +106,17 @@ async fn run() -> Result<()> {
         Commands::Policy(policy_cmd) => match policy_cmd {
             PolicyCommands::List { pagination } => {
                 cli::policy::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Repo(repo_cmd) => match repo_cmd {
+            RepoCommands::List { pagination } => {
+                cli::repo::list(
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),

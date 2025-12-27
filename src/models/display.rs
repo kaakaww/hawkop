@@ -8,8 +8,8 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::client::{
-    Application, OrgPolicy, Organization, PolicyType, ScanResult, StackHawkPolicy, Team, User,
-    UserExternal,
+    Application, OrgPolicy, Organization, PolicyType, Repository, ScanResult, StackHawkPolicy,
+    Team, User, UserExternal,
 };
 
 /// Organization display model for table/JSON output.
@@ -272,6 +272,147 @@ impl PolicyDisplay {
             description: policy.description.unwrap_or_else(|| "--".to_string()),
         }
     }
+}
+
+/// Repository display model for table/JSON output.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct RepoDisplay {
+    /// Whether repo is in attack surface
+    #[tabled(rename = "SURFACE")]
+    pub attack_surface: String,
+
+    /// Git provider (GITHUB, AZURE_DEVOPS, BITBUCKET, GITLAB)
+    #[tabled(rename = "SRC")]
+    pub provider: String,
+
+    /// Git organization name
+    #[tabled(rename = "ORG")]
+    pub git_org: String,
+
+    /// Repository name
+    #[tabled(rename = "REPO")]
+    pub name: String,
+
+    /// Whether StackHawk generated an OAS
+    #[tabled(rename = "OAS")]
+    pub oas: String,
+
+    /// Sensitive data tags
+    #[tabled(rename = "SENSITIVE")]
+    pub sensitive_data: String,
+
+    /// Last commit time (ISO datetime)
+    #[tabled(rename = "COMMITTED")]
+    pub last_commit: String,
+
+    /// Last committer
+    #[tabled(rename = "BY")]
+    pub last_committer: String,
+
+    /// 30-day commit activity
+    #[tabled(rename = "30D")]
+    pub commit_count: String,
+
+    /// Number of mapped apps
+    #[tabled(rename = "APPS")]
+    pub app_count: String,
+}
+
+impl From<Repository> for RepoDisplay {
+    fn from(repo: Repository) -> Self {
+        // Format provider
+        let provider = repo.repo_source.unwrap_or_else(|| "--".to_string());
+
+        // Format git org
+        let git_org = repo.provider_org_name.unwrap_or_else(|| "--".to_string());
+
+        // Format attack surface boolean (✓/✗)
+        let attack_surface = if repo.is_in_attack_surface {
+            "\u{2713}".to_string() // ✓
+        } else {
+            "\u{2717}".to_string() // ✗
+        };
+
+        // Format OAS boolean (✓/✗)
+        let oas = if repo.has_generated_open_api_spec {
+            "\u{2713}".to_string() // ✓
+        } else {
+            "\u{2717}".to_string() // ✗
+        };
+
+        // Format sensitive data tags (comma-separated, truncated)
+        let sensitive_data = if repo.sensitive_data_tags.is_empty() {
+            "--".to_string()
+        } else {
+            let tags: Vec<String> = repo.sensitive_data_tags.iter().map(|t| t.name.clone()).collect();
+            let joined = tags.join(", ");
+            if joined.len() > 20 {
+                format!("{}...", &joined[..17])
+            } else {
+                joined
+            }
+        };
+
+        // Format last commit time as ISO datetime
+        let last_commit = repo
+            .last_commit_timestamp
+            .as_ref()
+            .map(|ts| format_as_iso_datetime(ts))
+            .unwrap_or_else(|| "--".to_string());
+
+        // Format last committer
+        let last_committer = repo
+            .last_contributor
+            .and_then(|c| c.name)
+            .unwrap_or_else(|| "--".to_string());
+
+        // Format commit count
+        let commit_count = repo.commit_count.to_string();
+
+        // Format app count
+        let app_count = repo.app_infos.len().to_string();
+
+        Self {
+            attack_surface,
+            provider,
+            git_org,
+            name: repo.name,
+            oas,
+            sensitive_data,
+            last_commit,
+            last_committer,
+            commit_count,
+            app_count,
+        }
+    }
+}
+
+impl From<&Repository> for RepoDisplay {
+    fn from(repo: &Repository) -> Self {
+        RepoDisplay::from(repo.clone())
+    }
+}
+
+/// Format timestamp string to ISO datetime (YYYY-MM-DDTHH:MM:SSZ)
+fn format_as_iso_datetime(timestamp: &str) -> String {
+    // Try parsing as ISO 8601 timestamp already
+    if let Ok(dt) = timestamp.parse::<DateTime<Utc>>() {
+        return dt.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    }
+
+    // Try as Unix timestamp (milliseconds)
+    if let Ok(ts_ms) = timestamp.parse::<i64>() {
+        if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
+            return dt.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        }
+        // Try as seconds
+        if let Some(dt) = DateTime::from_timestamp(ts_ms, 0) {
+            return dt.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        }
+    }
+
+    // Return as-is if we can't parse it
+    timestamp.to_string()
 }
 
 /// Format scan status for display (normalize case)

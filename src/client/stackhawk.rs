@@ -15,8 +15,8 @@ use serde::de::{self, Deserializer};
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use super::{
-    Application, JwtToken, OrgPolicy, Organization, ScanResult, StackHawkApi, StackHawkPolicy,
-    Team, User,
+    Application, JwtToken, OrgPolicy, Organization, Repository, ScanResult, StackHawkApi,
+    StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -639,6 +639,33 @@ impl StackHawkApi for StackHawkClient {
             )
             .await?;
         Ok(response.policies)
+    }
+
+    async fn list_repos(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Repository>> {
+        #[derive(Deserialize)]
+        struct ReposResponse {
+            repositories: Vec<Repository>,
+        }
+
+        let path = format!("/org/{}/repos", org_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: ReposResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+        Ok(response.repositories)
     }
 }
 

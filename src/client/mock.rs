@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 
 use super::pagination::PagedResponse;
 use super::{
-    Application, JwtToken, OrgPolicy, Organization, ScanResult, StackHawkApi, StackHawkPolicy,
-    Team, User,
+    Application, JwtToken, OrgPolicy, Organization, Repository, ScanResult, StackHawkApi,
+    StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -41,6 +41,8 @@ pub struct MockStackHawkClient {
     stackhawk_policies: Arc<Mutex<Vec<StackHawkPolicy>>>,
     /// Org policies to return from list_org_policies
     org_policies: Arc<Mutex<Vec<OrgPolicy>>>,
+    /// Repositories to return from list_repos
+    repos: Arc<Mutex<Vec<Repository>>>,
     /// JWT to return from authenticate
     jwt: Arc<Mutex<Option<JwtToken>>>,
     /// Error to return (if any) - consumed on first use
@@ -59,6 +61,7 @@ impl Default for MockStackHawkClient {
             teams: Arc::new(Mutex::new(Vec::new())),
             stackhawk_policies: Arc::new(Mutex::new(Vec::new())),
             org_policies: Arc::new(Mutex::new(Vec::new())),
+            repos: Arc::new(Mutex::new(Vec::new())),
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
@@ -77,6 +80,7 @@ pub struct CallCounts {
     pub list_teams: usize,
     pub list_stackhawk_policies: usize,
     pub list_org_policies: usize,
+    pub list_repos: usize,
 }
 
 impl MockStackHawkClient {
@@ -280,6 +284,19 @@ impl StackHawkApi for MockStackHawkClient {
         counts.list_org_policies += 1;
 
         Ok(self.org_policies.lock().await.clone())
+    }
+
+    async fn list_repos(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<Repository>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_repos += 1;
+
+        Ok(self.repos.lock().await.clone())
     }
 }
 
