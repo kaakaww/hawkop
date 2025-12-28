@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-12-28
+
 ### Added
 
 - `hawkop scan view` command for drill-down exploration of scan results
@@ -59,7 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reactive per-endpoint rate limiting
 - Parallel pagination for large datasets
 
-[Unreleased]: https://github.com/kaakaww/hawkop/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/kaakaww/hawkop/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kaakaww/hawkop/compare/v0.1.0...v0.3.0
 [0.2.2]: https://github.com/kaakaww/hawkop/compare/v0.1.0...v0.2.2
 [0.2.1]: https://github.com/kaakaww/hawkop/compare/v0.1.0...v0.2.1
 [0.2.0]: https://github.com/kaakaww/hawkop/compare/v0.1.0...v0.2.0
