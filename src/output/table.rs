@@ -1,20 +1,20 @@
 //! Table output formatting
 
-use tabled::{
-    Table, Tabled,
-    settings::{Alignment, Modify, Style, object::Rows},
-};
+use tabled::{Table, Tabled, settings::Style};
 
-/// Format data as a table
+/// Format data as a table with clean minimal style
 pub fn format_table<T: Tabled>(data: &[T]) -> String {
     if data.is_empty() {
         return "No results found.".to_string();
     }
 
     let mut table = Table::new(data);
-    table
-        .with(Style::rounded())
-        .with(Modify::new(Rows::first()).with(Alignment::center()));
+
+    // Clean minimal style: vertical separators, thin header underline, no outer borders
+    table.with(Style::blank().vertical('│').horizontals([(
+        1,
+        tabled::settings::style::HorizontalLine::new('─').intersection('┼'),
+    )]));
 
     table.to_string()
 }
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_table_uses_rounded_style() {
+    fn test_format_table_uses_minimal_style() {
         let items = vec![TestRow {
             id: "1".to_string(),
             name: "Test".to_string(),
@@ -81,8 +81,11 @@ mod tests {
 
         let result = format_table(&items);
 
-        // Rounded style uses ╭ for top-left corner
-        assert!(result.contains("╭"));
-        assert!(result.contains("╰"));
+        // Minimal style uses │ for vertical separators and ─ for header underline
+        assert!(result.contains("│"));
+        assert!(result.contains("─"));
+        // No outer borders
+        assert!(!result.contains("╭"));
+        assert!(!result.contains("╰"));
     }
 }

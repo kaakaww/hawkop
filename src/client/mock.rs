@@ -372,6 +372,78 @@ impl StackHawkApi for MockStackHawkClient {
 
         Ok(self.audit_records.lock().await.clone())
     }
+
+    async fn get_scan(&self, _org_id: &str, _scan_id: &str) -> Result<ScanResult> {
+        self.check_error().await?;
+        // Return first scan or error if none
+        let scans = self.scans.lock().await;
+        scans
+            .first()
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound("Scan not found".to_string()).into())
+    }
+
+    async fn list_scan_alerts(
+        &self,
+        _scan_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<super::ApplicationAlert>> {
+        self.check_error().await?;
+        Ok(vec![])
+    }
+
+    async fn get_alert_with_paths(
+        &self,
+        _scan_id: &str,
+        _plugin_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<super::AlertResponse> {
+        self.check_error().await?;
+        Ok(super::AlertResponse {
+            alert: super::ApplicationAlert {
+                plugin_id: "test".to_string(),
+                name: "Test Alert".to_string(),
+                description: "Test description".to_string(),
+                severity: "Medium".to_string(),
+                cwe_id: None,
+                references: vec![],
+                uri_count: 0,
+                alert_status_stats: vec![],
+            },
+            application_scan_alert_uris: vec![],
+            app_host: None,
+            category: None,
+            cheatsheet: None,
+            next_page_token: None,
+            total_count: Some(0),
+        })
+    }
+
+    async fn get_alert_message(
+        &self,
+        _scan_id: &str,
+        _alert_uri_id: &str,
+        _message_id: &str,
+        _include_curl: bool,
+    ) -> Result<super::AlertMsgResponse> {
+        self.check_error().await?;
+        Ok(super::AlertMsgResponse {
+            scan_message: super::ScanMessage {
+                id: "msg-1".to_string(),
+                request_header: Some("GET / HTTP/1.1".to_string()),
+                request_body: None,
+                response_header: Some("HTTP/1.1 200 OK".to_string()),
+                response_body: Some("<html></html>".to_string()),
+                cookie_params: None,
+            },
+            uri: "/test".to_string(),
+            evidence: None,
+            param: None,
+            other_info: None,
+            description: None,
+            validation_command: None,
+        })
+    }
 }
 
 #[cfg(test)]
