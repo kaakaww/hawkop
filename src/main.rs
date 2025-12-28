@@ -85,6 +85,16 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
+            ScanCommands::View { scan_id, args } => {
+                cli::scan::view(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &scan_id,
+                    &args,
+                )
+                .await
+            }
         },
         Commands::User(user_cmd) => match user_cmd {
             UserCommands::List { pagination } => {

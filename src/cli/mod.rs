@@ -178,6 +178,26 @@ pub enum ScanCommands {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
+
+    /// View scan details and drill down into findings
+    #[command(
+        name = "view",
+        visible_alias = "v",
+        after_help = "DRILL-DOWN NAVIGATION:\n  \
+            scan view <id>                                  Show scan overview\n  \
+            scan view <id> alerts                           List all alerts\n  \
+            scan view <id> alert <plugin>                   Alert detail with paths\n  \
+            scan view <id> alert <plugin> uri <uri-id>      URI detail with evidence\n  \
+            scan view <id> alert <plugin> uri <uri-id> message  HTTP request/response"
+    )]
+    View {
+        /// Scan ID (UUID)
+        scan_id: String,
+
+        /// Drill-down: alerts | alert <plugin> [uri <uri-id>] [message]
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 }
 
 /// User management subcommands

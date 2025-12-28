@@ -6,6 +6,7 @@
 pub mod display;
 
 pub use display::{
-    AppDisplay, AuditDisplay, ConfigDisplay, OASDisplay, OrgDisplay, PolicyDisplay, RepoDisplay,
-    ScanDisplay, SecretDisplay, TeamDisplay, UserDisplay,
+    AlertDetail, AlertDisplay, AlertFindingDisplay, AlertMessageDetail, AppDisplay, AuditDisplay,
+    ConfigDisplay, OASDisplay, OrgDisplay, PolicyDisplay, RepoDisplay, ScanDisplay, ScanOverview,
+    SecretDisplay, TeamDisplay, UserDisplay,
 };

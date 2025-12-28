@@ -15,8 +15,9 @@ use serde::de::{self, Deserializer};
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use super::{
-    Application, AuditFilterParams, AuditRecord, JwtToken, OASAsset, OrgPolicy, Organization,
-    Repository, ScanConfig, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
+    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse, ScanConfig,
+    ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -218,8 +219,21 @@ impl StackHawkClient {
 
         match status {
             StatusCode::OK => {
-                let data = response.json::<T>().await.map_err(|e| {
-                    ApiError::InvalidResponse(format!("Failed to parse response: {}", e))
+                // Get response body as text first for better error messages
+                let body = response.text().await.map_err(|e| {
+                    ApiError::InvalidResponse(format!("Failed to read response body: {}", e))
+                })?;
+
+                // Parse JSON with detailed error reporting
+                let data: T = serde_json::from_str(&body).map_err(|e| {
+                    // Log part of the response body for debugging
+                    let preview = if body.len() > 500 {
+                        format!("{}...", &body[..500])
+                    } else {
+                        body.clone()
+                    };
+                    debug!("JSON parse error: {} in response: {}", e, preview);
+                    ApiError::InvalidResponse(format!("Failed to parse response: {} (line {}, col {})", e, e.line(), e.column()))
                 })?;
                 Ok(data)
             }
@@ -768,6 +782,133 @@ impl StackHawkApi for StackHawkClient {
             )
             .await?;
         Ok(response.audit_records)
+    }
+
+    // ========================================================================
+    // Scan Drill-Down Methods
+    // ========================================================================
+
+    async fn get_scan(&self, _org_id: &str, scan_id: &str) -> Result<ScanResult> {
+        // There's no direct "get single scan" API endpoint, so we use the alerts
+        // endpoint which returns scan metadata along with alerts. We just need
+        // the scan metadata from the response.
+        let path = format!("/scan/{}/alerts", scan_id);
+
+        let query_params: Vec<(&str, String)> = vec![("pageSize", "1".to_string())];
+
+        let response: ScanAlertsResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        // Extract scan metadata from the alerts response
+        let result = response
+            .application_scan_results
+            .into_iter()
+            .next()
+            .ok_or_else(|| ApiError::NotFound(format!("Scan not found: {}", scan_id)))?;
+
+        // Extract the Scan from the result
+        let scan = result
+            .scan
+            .ok_or_else(|| ApiError::NotFound(format!("Scan metadata not found: {}", scan_id)))?;
+
+        // Build a ScanResult from the alerts response data
+        Ok(ScanResult {
+            scan,
+            scan_duration: result.scan_duration,
+            url_count: result.url_count,
+            alert_stats: result.alert_stats,
+            severity_stats: None,
+            app_host: result.app_host,
+        })
+    }
+
+    async fn list_scan_alerts(
+        &self,
+        scan_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<ApplicationAlert>> {
+        let path = format!("/scan/{}/alerts", scan_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: ScanAlertsResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        // API returns array with single element containing the alerts list
+        Ok(response
+            .application_scan_results
+            .into_iter()
+            .next()
+            .map(|r| r.application_alerts)
+            .unwrap_or_default())
+    }
+
+    async fn get_alert_with_paths(
+        &self,
+        scan_id: &str,
+        plugin_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<AlertResponse> {
+        let path = format!("/scan/{}/alert/{}", scan_id, plugin_id);
+
+        // Build query params from pagination
+        let query_params: Vec<(&str, String)> =
+            pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: AlertResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(response)
+    }
+
+    async fn get_alert_message(
+        &self,
+        scan_id: &str,
+        alert_uri_id: &str,
+        message_id: &str,
+        include_curl: bool,
+    ) -> Result<AlertMsgResponse> {
+        let path = format!(
+            "/scan/{}/uri/{}/messages/{}",
+            scan_id, alert_uri_id, message_id
+        );
+
+        // Build query params
+        let mut query_params: Vec<(&str, String)> = vec![];
+        if include_curl {
+            query_params.push(("includeValidationCommand", "true".to_string()));
+        }
+
+        let response: AlertMsgResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(response)
     }
 }
 
