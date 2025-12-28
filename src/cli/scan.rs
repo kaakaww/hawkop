@@ -58,12 +58,18 @@ impl ScanContext {
 
         // Line 2: Host and HawkScan version
         let host_str = self.host.as_deref().unwrap_or("N/A");
-        let version_str = if self.version.is_empty() { "N/A" } else { &self.version };
+        let version_str = if self.version.is_empty() {
+            "N/A"
+        } else {
+            &self.version
+        };
         lines.push(format!(" Host: {}  HawkScan: {}", host_str, version_str));
 
         // Line 3: Date and Duration
         let date_str = format_timestamp_local(&self.timestamp);
-        let duration_str = self.duration.as_ref()
+        let duration_str = self
+            .duration
+            .as_ref()
             .map(|d| format_duration_seconds(d))
             .unwrap_or_else(|| "N/A".to_string());
         lines.push(format!(" Date: {}  Duration: {}", date_str, duration_str));
@@ -110,7 +116,7 @@ fn offset_to_tz_abbrev(offset_secs: i32) -> &'static str {
         2 => "EET",
         3 => "MSK",
         5 | 6 => "IST",
-        8 => "CST",  // China Standard Time
+        8 => "CST", // China Standard Time
         9 => "JST",
         10 => "AEST",
         12 => "NZST",
@@ -436,7 +442,8 @@ impl DrillDown {
             "alert" => {
                 if args.len() < 2 {
                     return Err(crate::error::ApiError::BadRequest(
-                        "Usage: scan view <id> alert <plugin-id> [uri <uri-id> [message]]".to_string(),
+                        "Usage: scan view <id> alert <plugin-id> [uri <uri-id> [message]]"
+                            .to_string(),
                     )
                     .into());
                 }

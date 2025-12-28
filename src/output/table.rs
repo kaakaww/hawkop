@@ -1,9 +1,6 @@
 //! Table output formatting
 
-use tabled::{
-    Table, Tabled,
-    settings::Style,
-};
+use tabled::{Table, Tabled, settings::Style};
 
 /// Format data as a table with clean minimal style
 pub fn format_table<T: Tabled>(data: &[T]) -> String {
@@ -14,11 +11,10 @@ pub fn format_table<T: Tabled>(data: &[T]) -> String {
     let mut table = Table::new(data);
 
     // Clean minimal style: vertical separators, thin header underline, no outer borders
-    table.with(
-        Style::blank()
-            .vertical('│')
-            .horizontals([(1, tabled::settings::style::HorizontalLine::new('─').intersection('┼'))])
-    );
+    table.with(Style::blank().vertical('│').horizontals([(
+        1,
+        tabled::settings::style::HorizontalLine::new('─').intersection('┼'),
+    )]));
 
     table.to_string()
 }

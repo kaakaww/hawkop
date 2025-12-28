@@ -233,7 +233,12 @@ impl StackHawkClient {
                         body.clone()
                     };
                     debug!("JSON parse error: {} in response: {}", e, preview);
-                    ApiError::InvalidResponse(format!("Failed to parse response: {} (line {}, col {})", e, e.line(), e.column()))
+                    ApiError::InvalidResponse(format!(
+                        "Failed to parse response: {} (line {}, col {})",
+                        e,
+                        e.line(),
+                        e.column()
+                    ))
                 })?;
                 Ok(data)
             }

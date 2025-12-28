@@ -429,7 +429,11 @@ pub struct ApplicationAlertUri {
     pub matched_rule_note: Option<String>,
 
     /// Timestamp of last triage update
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_i64_or_string")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_i64_or_string"
+    )]
     pub matched_rule_last_updated: Option<i64>,
 }
 
@@ -463,7 +467,11 @@ pub struct AlertResponse {
     pub next_page_token: Option<String>,
 
     /// Total count of paths for this alert
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_i64_or_string")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_i64_or_string"
+    )]
     pub total_count: Option<i64>,
 }
 
@@ -542,7 +550,11 @@ pub struct ScanAlertsResponse {
     pub next_page_token: Option<String>,
 
     /// Total alert count
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_i64_or_string")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_i64_or_string"
+    )]
     pub total_count: Option<i64>,
 }
 
@@ -567,7 +579,11 @@ pub struct ScanResultWithAlerts {
     pub scan_duration: Option<String>,
 
     /// URL count (API may return as integer)
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_int_or_string")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_int_or_string"
+    )]
     pub url_count: Option<u32>,
 
     /// Application host URL
@@ -576,7 +592,9 @@ pub struct ScanResultWithAlerts {
 }
 
 /// Custom deserializer for fields that may be int or string (u32)
-fn deserialize_optional_int_or_string<'de, D>(deserializer: D) -> std::result::Result<Option<u32>, D::Error>
+fn deserialize_optional_int_or_string<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<u32>, D::Error>
 where
     D: serde::de::Deserializer<'de>,
 {
@@ -597,7 +615,9 @@ where
 }
 
 /// Custom deserializer for i64 fields that may come as strings
-fn deserialize_optional_i64_or_string<'de, D>(deserializer: D) -> std::result::Result<Option<i64>, D::Error>
+fn deserialize_optional_i64_or_string<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<i64>, D::Error>
 where
     D: serde::de::Deserializer<'de>,
 {
