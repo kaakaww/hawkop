@@ -129,32 +129,109 @@ hawkop version
 
 Manage organizations.
 
-#### `hawkop org list`
-
-List all accessible organizations.
-
 ```bash
-# Table output
-hawkop org list
-
-# JSON output
-hawkop org list --format json
+hawkop org list              # List all accessible organizations
+hawkop org set <ORG_ID>      # Set default organization
+hawkop org get               # Show current default organization
 ```
 
-#### `hawkop org set <ORG_ID>`
+### `hawkop app`
 
-Set default organization.
+List applications.
 
 ```bash
-hawkop org set org_abc123
+hawkop app list                    # List all applications
+hawkop app list --type cloud       # Filter by type (cloud, standard)
+hawkop app list --limit 50         # Limit results
 ```
 
-#### `hawkop org get`
+### `hawkop scan`
 
-Show current default organization.
+List scans with filtering.
 
 ```bash
-hawkop org get
+hawkop scan list                          # List recent scans
+hawkop scan list --status completed       # Filter by status
+hawkop scan list --env production         # Filter by environment
+hawkop scan list --app <APP_ID>           # Filter by application
+```
+
+### `hawkop user`
+
+List organization members.
+
+```bash
+hawkop user list
+```
+
+### `hawkop team`
+
+List organization teams.
+
+```bash
+hawkop team list
+```
+
+### `hawkop policy`
+
+List scan policies.
+
+```bash
+hawkop policy list
+```
+
+### `hawkop repo`
+
+List repositories in attack surface.
+
+```bash
+hawkop repo list
+```
+
+### `hawkop audit`
+
+View organization audit log.
+
+```bash
+hawkop audit list                              # Recent audit entries
+hawkop audit list --type SCAN_STARTED          # Filter by activity type
+hawkop audit list --since 7d                   # Last 7 days
+hawkop audit list --user "John"                # Filter by user
+```
+
+### `hawkop oas`
+
+List hosted OpenAPI specifications.
+
+```bash
+hawkop oas list
+```
+
+### `hawkop config`
+
+List scan configurations.
+
+```bash
+hawkop config list
+```
+
+### `hawkop secret`
+
+List user secret names.
+
+```bash
+hawkop secret list
+```
+
+### `hawkop completion`
+
+Generate shell completions.
+
+```bash
+hawkop completion bash       # Bash completions
+hawkop completion zsh        # Zsh completions
+hawkop completion fish       # Fish completions
+hawkop completion powershell # PowerShell completions
 ```
 
 ## Configuration
@@ -168,7 +245,7 @@ api_key: hawk_abc123...
 org_id: org_abc123
 jwt:
   token: eyJhbGci...
-  expires_at: 2025-11-10T15:30:45Z
+  expires_at: 2026-01-15T12:00:00Z
 preferences:
   page_size: 1000
 ```
@@ -257,39 +334,37 @@ cargo test
 
 ## Roadmap
 
-### MVP (Current)
+### Implemented ✅
 
 - ✅ Authentication and configuration management
 - ✅ Organization management (`org list`, `org set`, `org get`)
+- ✅ Application management (`app list` with pagination and type filtering)
+- ✅ Scan management (`scan list` with filtering by status, env, app)
+- ✅ User management (`user list`)
+- ✅ Team management (`team list`)
+- ✅ Policy management (`policy list`)
+- ✅ Repository management (`repo list` - attack surface)
+- ✅ Audit log (`audit list` with filtering)
+- ✅ OpenAPI specs (`oas list`)
+- ✅ Scan configs (`config list`)
+- ✅ Secrets (`secret list`)
+- ✅ Shell completions (`completion bash|zsh|fish|powershell`)
 - ✅ Interactive init command
 - ✅ Status and version commands
 - ✅ Table and JSON output formats
 - ✅ Cross-platform support
+- ✅ Parallel pagination for large datasets
+- ✅ Per-endpoint reactive rate limiting
 
-### Phase 2: Application & Scan Management
+### Planned
 
-- [ ] `hawkop app list` - List applications with filtering
 - [ ] `hawkop app get <APP_ID>` - Application details
-- [ ] `hawkop scan list` - List scans with filtering
 - [ ] `hawkop scan get <SCAN_ID>` - Scan details
 - [ ] `hawkop scan alerts <SCAN_ID>` - Security alerts
-
-### Phase 3: User & Team Management
-
-- [ ] `hawkop user list` - List users with role filtering
-- [ ] `hawkop team list` - List teams
-
-### Phase 4: Advanced Features
-
 - [ ] Scan finding details with request/response data
 - [ ] Cross-application security dashboards
 - [ ] Historical trending and metrics
-- [ ] Policy management
 - [ ] Export capabilities (CSV, PDF)
-
-### Phase 5: Distribution & Tooling
-
-- [ ] Shell completion (bash, zsh, fish, PowerShell)
 - [ ] Homebrew tap for macOS
 - [ ] APT/YUM repositories for Linux
 - [ ] Publish to crates.io

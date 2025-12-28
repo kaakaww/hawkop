@@ -3,7 +3,7 @@
 
 .PHONY: help build release test lint fmt check-fmt pre-commit clean install run
 .PHONY: build-all build-linux-x64 build-linux-arm64 build-macos-intel build-macos-arm build-windows-x64 build-windows-arm64
-.PHONY: dist checksums release
+.PHONY: dist checksums changelog changelog-preview
 
 # Default target
 .DEFAULT_GOAL := help
@@ -33,43 +33,10 @@ build:
 	@echo "$(CYAN)Building debug binary...$(NC)"
 	cargo build
 
-## release: Interactive guide for creating a GitHub release
+## release: Run interactive release wizard
 release:
-	@echo "$(CYAN)╔════════════════════════════════════════════════════════╗$(NC)"
-	@echo "$(CYAN)║         HawkOp Release Process Guide                   ║$(NC)"
-	@echo "$(CYAN)╚════════════════════════════════════════════════════════╝$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Current version in Cargo.toml: $(VERSION)$(NC)"
-	@echo ""
-	@echo "$(GREEN)Step 1: Update version$(NC)"
-	@echo "  • Edit Cargo.toml and update the version number"
-	@echo "  • Update Cargo.lock: cargo update -p $(BINARY_NAME)"
-	@echo ""
-	@echo "$(GREEN)Step 2: Update CHANGELOG.md$(NC)"
-	@echo "  • Document all changes since last release"
-	@echo "  • Include features, fixes, and breaking changes"
-	@echo ""
-	@echo "$(GREEN)Step 3: Run pre-commit checks$(NC)"
-	@echo "  • Run: make pre-commit"
-	@echo "  • Ensure all tests pass and code is formatted"
-	@echo ""
-	@echo "$(GREEN)Step 4: Commit and tag$(NC)"
-	@echo "  • git add Cargo.toml Cargo.lock CHANGELOG.md"
-	@echo "  • git commit -m 'chore: release v$(VERSION)'"
-	@echo "  • git tag v$(VERSION)"
-	@echo "  • git push origin main"
-	@echo "  • git push origin v$(VERSION)"
-	@echo ""
-	@echo "$(GREEN)Step 5: GitHub Actions will:$(NC)"
-	@echo "  • Build for all platforms (6 targets)"
-	@echo "  • Create release archives"
-	@echo "  • Generate checksums"
-	@echo "  • Create GitHub Release automatically"
-	@echo ""
-	@echo "$(GREEN)Step 6: Verify$(NC)"
-	@echo "  • Check GitHub Actions workflow status"
-	@echo "  • Verify release artifacts on GitHub Releases page"
-	@echo ""
+	@echo "$(YELLOW)Tip: For better Ctrl+C handling, run directly: ./scripts/release.sh$(NC)"
+	@./scripts/release.sh
 
 ## test: Run all tests
 test:
@@ -208,3 +175,21 @@ checksums:
 	@echo "$(CYAN)Generating SHA256 checksums...$(NC)"
 	@cd $(DIST_DIR) && shasum -a 256 *.tar.gz *.zip > checksums.txt
 	@echo "$(GREEN)Checksums generated: $(DIST_DIR)/checksums.txt$(NC)"
+
+## changelog: Extract changelog for a version (usage: make changelog or make changelog V=0.2.0)
+changelog:
+	@V=$${V:-$(VERSION)}; \
+	if [ "$$V" = "Unreleased" ]; then \
+		awk '/^## \[Unreleased\]/{found=1; next} /^## \[/{if(found) exit} /^\[.*\]:/{next} found{print}' CHANGELOG.md; \
+	else \
+		awk -v ver="$$V" '/^## \[/{if(found) exit; if($$0 ~ "\\["ver"\\]") found=1; next} /^\[.*\]:/{next} found{print}' CHANGELOG.md; \
+	fi
+
+## changelog-preview: Show changelog for current version with header
+changelog-preview:
+	@echo "$(CYAN)╔════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(CYAN)║       Changelog for v$(VERSION)$(NC)"
+	@echo "$(CYAN)╚════════════════════════════════════════════════════════╝$(NC)"
+	@echo ""
+	@$(MAKE) -s changelog
+	@echo ""

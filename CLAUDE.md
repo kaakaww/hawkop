@@ -19,7 +19,13 @@ src/
 │   ├── app.rs           # Application commands
 │   ├── scan.rs          # Scan commands
 │   ├── user.rs          # User commands
-│   └── team.rs          # Team commands
+│   ├── team.rs          # Team commands
+│   ├── policy.rs        # Policy commands
+│   ├── repo.rs          # Repository commands
+│   ├── audit.rs         # Audit log commands
+│   ├── oas.rs           # OpenAPI spec commands
+│   ├── config.rs        # Scan config commands
+│   └── secret.rs        # Secret commands
 ├── client/              # StackHawk API client
 │   ├── mod.rs           # API trait + data models (Organization, Application, etc.)
 │   ├── stackhawk.rs     # HTTP client implementation
@@ -35,6 +41,8 @@ src/
     ├── mod.rs           # Formattable trait
     ├── table.rs         # tabled formatting
     └── json.rs          # JSON with metadata wrapper
+scripts/
+└── release.sh           # Interactive release wizard
 ```
 
 ## Build & Development Commands
@@ -55,10 +63,17 @@ hawkop init              # Interactive setup
 hawkop status            # Show config status
 hawkop version           # Version info
 hawkop org list|set|get  # Organization management
-hawkop app list          # List applications (supports pagination)
+hawkop app list          # List applications (supports pagination + type filter)
 hawkop scan list         # List scans (supports pagination + filters)
 hawkop user list         # List organization members
 hawkop team list         # List organization teams
+hawkop policy list       # List scan policies
+hawkop repo list         # List repositories in attack surface
+hawkop audit list        # View audit log (supports filters + date ranges)
+hawkop oas list          # List hosted OpenAPI specifications
+hawkop config list       # List scan configurations
+hawkop secret list       # List user secret names
+hawkop completion <shell> # Generate shell completions (bash/zsh/fish/powershell)
 ```
 
 Global flags: `--format table|json`, `--org <ID>`, `--config <PATH>`, `--debug`

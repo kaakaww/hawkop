@@ -33,25 +33,25 @@ The architecture includes:
 - Default organization and CLI preferences such as default pagination limits also in `~/.hawkop/config.yaml`
 - Connection status tracking
 
-### Desired features:
 ### Implemented Features ✅
-[ ] **CLI Framework** - Complete CLI with hierarchical commands largely modeled on GitHub's `gh` CLI
-[ ] **Security & Auth** - Secure config storage, JWT management, API key protection
-[ ] **Configuration** - `~/.hawkop/config.yaml` with 600 permissions
-[ ] **Core Commands** - `init`, `status`, `version`, `org`, `user`, `team`, `app`, `scan`
-[ ] **Resource Management** - List and manage orgs, users, teams, applications
-[ ] **Scan Analysis** - List scans, view details, analyze security alerts
-[ ] **Smart Filtering** - App/env/status/role/severity filters across commands
-[ ] **Output Formats** - Professional table formatting + JSON for automation
-[ ] **Enterprise Ready** - Pagination, organization awareness, role-based access
-[ ] **Real Security Data** - Live integration showing actual vulnerability findings
-[ ] **Extensible Architecture** - Clean patterns for adding new commands and reports
-[ ] **Production Quality** - Error handling, validation, user-friendly messaging
-[ ] **Testing Infrastructure** - Comprehensive test suites with testify framework
-[ ] **CI/CD Pipeline** - GitHub Actions for automated testing and releases
-[ ] **Release Management** - Multi-platform binary distribution via GitHub Releases
-[ ] **Professional Standards** - MIT license, comprehensive docs, contribution guidelines
-[ ] **YAML Configuration** - Human-readable YAML format for configuration files
+[x] **CLI Framework** - Complete CLI with hierarchical commands largely modeled on GitHub's `gh` CLI
+[x] **Security & Auth** - Secure config storage, JWT management, API key protection
+[x] **Configuration** - `~/.hawkop/config.yaml` with 600 permissions
+[x] **Core Commands** - `init`, `status`, `version`, `org`, `user`, `team`, `app`, `scan`, `policy`, `repo`, `audit`, `oas`, `config`, `secret`, `completion`
+[x] **Resource Management** - List and manage orgs, users, teams, applications, policies, repos
+[x] **Scan Analysis** - List scans with filtering by status, environment, application
+[x] **Smart Filtering** - App/env/status/type/date filters across commands
+[x] **Output Formats** - Professional table formatting + JSON for automation
+[x] **Enterprise Ready** - Pagination, organization awareness, parallel fetching for large datasets
+[x] **Real Security Data** - Live integration showing actual vulnerability findings
+[x] **Extensible Architecture** - Clean patterns for adding new commands and reports
+[x] **Production Quality** - Error handling, validation, user-friendly messaging
+[x] **Testing Infrastructure** - Comprehensive test suites with unit tests
+[x] **CI/CD Pipeline** - GitHub Actions for automated testing and releases
+[x] **Release Management** - Interactive release wizard with changelog integration
+[x] **Professional Standards** - MIT license, comprehensive docs, contribution guidelines
+[x] **YAML Configuration** - Human-readable YAML format for configuration files
+[x] **Shell Completions** - bash, zsh, fish, PowerShell completions
 
 ### API Standards Compliance ✅
 - **Rate Limiting**: 360 requests/minute compliance with initial unlimited burst backing down to 167ms intervals to balance initial speed and responsiveness with eventual pacing to avoid dropped connections.
@@ -131,7 +131,7 @@ api_key: your-api-key
 org_id: optional-default-org-id
 jwt:
   token: jwt-token
-  expires_at: 2024-12-25T15:30:45Z
+  expires_at: 2026-01-15T12:00:00Z
 ```
 
 ## Reference Materials
