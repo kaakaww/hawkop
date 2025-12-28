@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `hawkop scan view` command for drill-down exploration of scan results
+  - `scan view <id>` - scan overview with findings summary
+  - `scan view <id> alerts` - list all alerts (plugins)
+  - `scan view <id> alert <plugin>` - alert detail with affected paths
+  - `scan view <id> alert <plugin> uri <uri-id>` - URI detail with evidence
+  - `scan view <id> alert <plugin> uri <uri-id> message` - HTTP request/response with curl command
+- Scan context banner showing app/environment, host, HawkScan version, date, and duration
+- Timezone abbreviation mapping for common zones (MST, EST, PST, etc.)
+
+### Changed
+
+- Table output now uses clean minimal style (vertical separators, header underline only)
+- Navigation hints guide users through drill-down exploration
+
 ## [0.2.2] - 2025-12-27
 
 ### Added
