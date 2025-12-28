@@ -275,86 +275,100 @@ cargo audit
 
 ## Release Process
 
+HawkOp uses an interactive release wizard that handles version bumping, changelog promotion, and tagging.
+
+### Prerequisites
+
+Before releasing, ensure:
+- You're on the `main` branch (or have a good reason not to be)
+- Working directory is clean (no uncommitted changes)
+- CHANGELOG.md has content in the `[Unreleased]` section
+
 ### Creating a New Release
 
-1. **Update Version**
-
-   Edit `Cargo.toml`:
-   ```toml
-   [package]
-   version = "0.2.0"  # Update version
-   ```
-
-   Update lockfile:
-   ```bash
-   cargo update -p hawkop
-   ```
-
-2. **Update CHANGELOG.md**
-
-   Document all changes since last release:
-   ```markdown
-   ## [0.2.0] - 2025-11-20
-
-   ### Added
-   - New feature X
-   - New feature Y
-
-   ### Fixed
-   - Bug fix A
-   - Bug fix B
-
-   ### Changed
-   - Updated dependency Z
-   ```
-
-3. **Run Pre-Commit Checks**
-
-   ```bash
-   make pre-commit
-   ```
-
-   Ensure everything passes.
-
-4. **View Release Instructions**
+1. **Run the Release Wizard**
 
    ```bash
    make release
+   # or directly:
+   ./scripts/release.sh
    ```
 
-   This shows the complete release guide.
+2. **Follow the Interactive Prompts**
 
-5. **Commit and Tag**
+   The wizard will:
+   - Show current version
+   - Validate changelog has unreleased content
+   - Prompt for version bump type (patch/minor/major/custom)
+   - Show recent commits and changelog preview
+   - Run pre-flight checks (format, clippy, tests)
+   - Ask for final confirmation
 
-   ```bash
-   git add Cargo.toml Cargo.lock CHANGELOG.md
-   git commit -m "chore: release v0.2.0"
-   git tag v0.2.0
-   ```
+3. **Review What Will Be Released**
 
-6. **Push to GitHub**
+   The wizard shows:
+   - Version change (e.g., `0.1.0 → 0.2.0`)
+   - Changelog content that will be released
+   - Recent commits for context
 
+4. **Confirm and Execute**
+
+   If you confirm, the wizard will:
+   - Update version in `Cargo.toml`
+   - Promote `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` in CHANGELOG.md
+   - Create a fresh `[Unreleased]` section for future changes
+   - Create commit: `chore: release vX.Y.Z`
+   - Create tag: `vX.Y.Z`
+
+5. **Push to GitHub**
+
+   The wizard prints the commands to push:
    ```bash
    git push origin main
-   git push origin v0.2.0
+   git push origin vX.Y.Z
    ```
 
-7. **Wait for GitHub Actions**
+6. **GitHub Actions Takes Over**
 
-   The release workflow will automatically:
-   - Build for all 6 platforms
-   - Create distribution archives
-   - Generate checksums
-   - Create GitHub Release
-   - Upload all artifacts
+   Pushing the tag triggers the release workflow which:
+   - Builds for all 6 platforms
+   - Creates distribution archives
+   - Generates SHA256 checksums
+   - Creates GitHub Release with changelog
+   - Uploads all artifacts
 
-8. **Verify Release**
+7. **Verify Release**
 
    Check:
-   - GitHub Actions workflow completed successfully
-   - Release appears at `https://github.com/kaakaww/hawkop/releases`
-   - All 6 platform binaries are attached
-   - Checksums are present
+   - GitHub Actions workflow completed: https://github.com/kaakaww/hawkop/actions
+   - Release page: https://github.com/kaakaww/hawkop/releases
+   - All 6 platform binaries attached
+   - Changelog appears in release notes
+
+### Changelog Management
+
+The changelog follows [Keep a Changelog](https://keepachangelog.com/) format.
+
+**During development**, add entries to the `[Unreleased]` section:
+
+```markdown
+## [Unreleased]
+
+### Added
+- New feature X
+
+### Fixed
+- Bug Y
+```
+
+**During release**, the wizard automatically promotes unreleased content to a versioned section with today's date.
+
+**Preview changelog** before releasing:
+
+```bash
+make changelog-preview        # Shows what will be released
+make changelog V=Unreleased   # Raw unreleased content
+```
 
 ### Supported Platforms
 

@@ -1,16 +1,21 @@
 //! CLI command definitions and handlers
 
 use clap::{Args, Parser, Subcommand};
+pub use clap_complete::Shell;
 
 use crate::client::PaginationParams;
 
 pub mod app;
+pub mod audit;
+pub mod config;
 pub mod context;
 pub mod init;
+pub mod oas;
 pub mod org;
 pub mod policy;
 pub mod repo;
 pub mod scan;
+pub mod secret;
 pub mod status;
 pub mod team;
 pub mod user;
@@ -89,6 +94,47 @@ pub enum Commands {
     /// List repositories in attack surface
     #[command(subcommand)]
     Repo(RepoCommands),
+
+    /// List hosted OpenAPI specifications
+    #[command(subcommand)]
+    Oas(OasCommands),
+
+    /// List scan configurations
+    #[command(subcommand)]
+    Config(ConfigCommands),
+
+    /// List user secrets
+    #[command(subcommand)]
+    Secret(SecretCommands),
+
+    /// View organization audit log
+    #[command(subcommand)]
+    Audit(AuditCommands),
+
+    /// Generate shell completions
+    #[command(after_help = "\
+Setup:
+  bash:
+    hawkop completion bash > /etc/bash_completion.d/hawkop
+    # Or for user install:
+    hawkop completion bash >> ~/.bashrc
+
+  zsh:
+    hawkop completion zsh > \"${fpath[1]}/_hawkop\"
+    # Or add to ~/.zshrc:
+    eval \"$(hawkop completion zsh)\"
+
+  fish:
+    hawkop completion fish > ~/.config/fish/completions/hawkop.fish
+
+  powershell:
+    # Add to $PROFILE:
+    hawkop completion powershell | Out-String | Invoke-Expression")]
+    Completion {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 /// Organization management subcommands
@@ -112,6 +158,10 @@ pub enum OrgCommands {
 pub enum AppCommands {
     /// List all applications in the current organization
     List {
+        /// Filter by application type (cloud, standard)
+        #[arg(long = "type", short = 't')]
+        app_type: Option<String>,
+
         #[command(flatten)]
         pagination: PaginationArgs,
     },
@@ -168,6 +218,90 @@ pub enum RepoCommands {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
+}
+
+/// OAS management subcommands
+#[derive(Subcommand, Debug)]
+pub enum OasCommands {
+    /// List hosted OpenAPI specifications
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Configuration management subcommands
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    /// List scan configurations
+    List {
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+}
+
+/// Secret management subcommands
+#[derive(Subcommand, Debug)]
+pub enum SecretCommands {
+    /// List user secrets (names only)
+    List,
+}
+
+/// Audit log subcommands
+#[derive(Subcommand, Debug)]
+pub enum AuditCommands {
+    /// List audit log entries
+    #[command(after_help = "\
+Examples:
+  hawkop audit list --type SCAN_STARTED,SCAN_COMPLETED --since 7d
+  hawkop audit list --since 2024-12-01 --until 2024-12-31
+  hawkop audit list --org-type EXTERNAL_ALERTS_SENT,ORGANIZATION_CREATED")]
+    List {
+        #[command(flatten)]
+        filters: AuditFilterArgs,
+    },
+}
+
+/// Filter arguments for audit list command.
+#[derive(Args, Debug, Clone)]
+pub struct AuditFilterArgs {
+    /// Filter by activity type
+    #[arg(long = "type", short = 't', value_delimiter = ',')]
+    pub activity_type: Vec<String>,
+
+    /// Filter by org activity type
+    #[arg(long = "org-type", value_delimiter = ',')]
+    pub org_type: Vec<String>,
+
+    /// Filter by user name
+    #[arg(long, short = 'u')]
+    pub user: Option<String>,
+
+    /// Filter by user email
+    #[arg(long)]
+    pub email: Option<String>,
+
+    /// Start date (ISO or relative: 7d, 30d)
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// End date (ISO or relative: 7d, 30d)
+    #[arg(long)]
+    pub until: Option<String>,
+
+    /// Sort direction (asc, desc)
+    #[arg(
+        long,
+        value_enum,
+        default_value = "desc",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
+    pub sort_dir: SortDir,
+
+    /// Maximum results to return
+    #[arg(long, short = 'n')]
+    pub limit: Option<usize>,
 }
 
 /// Filter arguments for scan list command.

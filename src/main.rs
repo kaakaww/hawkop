@@ -1,6 +1,7 @@
 //! HawkOp CLI - Professional companion for the StackHawk DAST platform
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 
 mod cli;
 mod client;
@@ -10,8 +11,8 @@ mod models;
 mod output;
 
 use cli::{
-    AppCommands, Cli, Commands, OrgCommands, PolicyCommands, RepoCommands, ScanCommands,
-    TeamCommands, UserCommands,
+    AppCommands, AuditCommands, Cli, Commands, ConfigCommands, OasCommands, OrgCommands,
+    PolicyCommands, RepoCommands, ScanCommands, SecretCommands, TeamCommands, UserCommands,
 };
 use error::Result;
 
@@ -56,11 +57,15 @@ async fn run() -> Result<()> {
             }
         },
         Commands::App(app_cmd) => match app_cmd {
-            AppCommands::List { pagination } => {
+            AppCommands::List {
+                app_type,
+                pagination,
+            } => {
                 cli::app::list(
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
+                    app_type.as_deref(),
                     &pagination,
                 )
                 .await
@@ -125,6 +130,46 @@ async fn run() -> Result<()> {
                 .await
             }
         },
+        Commands::Oas(oas_cmd) => match oas_cmd {
+            OasCommands::List { pagination } => {
+                cli::oas::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Config(config_cmd) => match config_cmd {
+            ConfigCommands::List { pagination } => {
+                cli::config::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &pagination,
+                )
+                .await
+            }
+        },
+        Commands::Secret(secret_cmd) => match secret_cmd {
+            SecretCommands::List => cli::secret::list(cli.format, cli.config.as_deref()).await,
+        },
+        Commands::Audit(audit_cmd) => match audit_cmd {
+            AuditCommands::List { filters } => {
+                cli::audit::list(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &filters,
+                )
+                .await
+            }
+        },
+        Commands::Completion { shell } => {
+            generate(shell, &mut Cli::command(), "hawkop", &mut std::io::stdout());
+            Ok(())
+        }
     };
 
     // Log debug info on completion

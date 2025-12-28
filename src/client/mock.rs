@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 
 use super::pagination::PagedResponse;
 use super::{
-    Application, JwtToken, OrgPolicy, Organization, Repository, ScanResult, StackHawkApi,
-    StackHawkPolicy, Team, User,
+    Application, AuditFilterParams, AuditRecord, JwtToken, OASAsset, OrgPolicy, Organization,
+    Repository, ScanConfig, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
 };
 use crate::error::{ApiError, Result};
 
@@ -43,6 +43,14 @@ pub struct MockStackHawkClient {
     org_policies: Arc<Mutex<Vec<OrgPolicy>>>,
     /// Repositories to return from list_repos
     repos: Arc<Mutex<Vec<Repository>>>,
+    /// OAS assets to return from list_oas
+    oas_assets: Arc<Mutex<Vec<OASAsset>>>,
+    /// Scan configurations to return from list_scan_configs
+    scan_configs: Arc<Mutex<Vec<ScanConfig>>>,
+    /// Secrets to return from list_secrets
+    secrets: Arc<Mutex<Vec<Secret>>>,
+    /// Audit records to return from list_audit
+    audit_records: Arc<Mutex<Vec<AuditRecord>>>,
     /// JWT to return from authenticate
     jwt: Arc<Mutex<Option<JwtToken>>>,
     /// Error to return (if any) - consumed on first use
@@ -62,6 +70,10 @@ impl Default for MockStackHawkClient {
             stackhawk_policies: Arc::new(Mutex::new(Vec::new())),
             org_policies: Arc::new(Mutex::new(Vec::new())),
             repos: Arc::new(Mutex::new(Vec::new())),
+            oas_assets: Arc::new(Mutex::new(Vec::new())),
+            scan_configs: Arc::new(Mutex::new(Vec::new())),
+            secrets: Arc::new(Mutex::new(Vec::new())),
+            audit_records: Arc::new(Mutex::new(Vec::new())),
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
@@ -81,6 +93,10 @@ pub struct CallCounts {
     pub list_stackhawk_policies: usize,
     pub list_org_policies: usize,
     pub list_repos: usize,
+    pub list_oas: usize,
+    pub list_scan_configs: usize,
+    pub list_secrets: usize,
+    pub list_audit: usize,
 }
 
 impl MockStackHawkClient {
@@ -308,6 +324,54 @@ impl StackHawkApi for MockStackHawkClient {
 
         Ok(self.repos.lock().await.clone())
     }
+
+    async fn list_oas(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<OASAsset>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_oas += 1;
+
+        Ok(self.oas_assets.lock().await.clone())
+    }
+
+    async fn list_scan_configs(
+        &self,
+        _org_id: &str,
+        _pagination: Option<&super::PaginationParams>,
+    ) -> Result<Vec<ScanConfig>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_scan_configs += 1;
+
+        Ok(self.scan_configs.lock().await.clone())
+    }
+
+    async fn list_secrets(&self) -> Result<Vec<Secret>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_secrets += 1;
+
+        Ok(self.secrets.lock().await.clone())
+    }
+
+    async fn list_audit(
+        &self,
+        _org_id: &str,
+        _filters: Option<&AuditFilterParams>,
+    ) -> Result<Vec<AuditRecord>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_audit += 1;
+
+        Ok(self.audit_records.lock().await.clone())
+    }
 }
 
 #[cfg(test)]
@@ -360,6 +424,8 @@ mod tests {
                 risk_level: None,
                 status: None,
                 organization_id: Some("org-1".to_string()),
+                application_type: None,
+                cloud_scan_target: None,
             }])
             .await;
 

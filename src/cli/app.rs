@@ -3,7 +3,7 @@
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
-use crate::client::{PaginationParams, StackHawkApi, fetch_remaining_pages};
+use crate::client::{Application, PaginationParams, StackHawkApi, fetch_remaining_pages};
 use crate::error::Result;
 use crate::models::AppDisplay;
 use crate::output::Formattable;
@@ -19,6 +19,7 @@ pub async fn list(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
+    app_type: Option<&str>,
     pagination: &PaginationArgs,
 ) -> Result<()> {
     let ctx = CommandContext::new(format, org_override, config_path).await?;
@@ -86,15 +87,39 @@ pub async fn list(
 
     debug!("Total apps fetched: {}", all_apps.len());
 
+    // Apply type filter if specified
+    let filtered_apps = filter_by_type(all_apps, app_type);
+    debug!("Apps after type filter: {}", filtered_apps.len());
+
     // Apply limit if specified
     let limited_apps = if let Some(limit) = pagination.limit {
-        all_apps.into_iter().take(limit).collect()
+        filtered_apps.into_iter().take(limit).collect()
     } else {
-        all_apps
+        filtered_apps
     };
 
     let display_apps: Vec<AppDisplay> = limited_apps.into_iter().map(AppDisplay::from).collect();
     display_apps.print(ctx.format)?;
 
     Ok(())
+}
+
+/// Filter applications by type (cloud or standard)
+fn filter_by_type(apps: Vec<Application>, app_type: Option<&str>) -> Vec<Application> {
+    match app_type {
+        Some(filter) => {
+            let filter_upper = filter.to_uppercase();
+            apps.into_iter()
+                .filter(|app| {
+                    let app_type = app
+                        .application_type
+                        .as_ref()
+                        .map(|t| t.to_uppercase())
+                        .unwrap_or_else(|| "STANDARD".to_string());
+                    app_type == filter_upper
+                })
+                .collect()
+        }
+        None => apps,
+    }
 }
