@@ -1,5 +1,5 @@
 ---
-description: Run clippy and report linting issues
+description: Run Clippy and other linting utilities and report linting issues
 ---
 
-Run `cargo clippy` to check for common Rust anti-patterns and potential issues. Report any warnings or errors and suggest improvements.
+Run `make lint` to check for common Rust anti-patterns and potential issues. Report any warnings or errors and suggest improvements.

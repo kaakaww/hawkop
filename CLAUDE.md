@@ -170,6 +170,22 @@ See `src/cli/scan.rs` and `src/cli/app.rs` for examples.
 - Use `deserialize_string_to_usize` helper in stackhawk.rs
 - API base URLs: v1 = `https://api.stackhawk.com/api/v1`, v2 = `https://api.stackhawk.com/api/v2`
 
+## CLI Design Philosophy
+
+HawkOp follows principles from [clig.dev](https://clig.dev) and [12-Factor CLI Apps](https://medium.com/@jdxcode/12-factor-cli-apps-dd3c227a0e46). See `docs/CLI_DESIGN_PRINCIPLES.md` for the complete guide.
+
+**Key rules:**
+- stdout for data, stderr for messages/progress
+- Prefer flags over multiple positional args
+- Always support `--format json` for scripting
+- Errors must be actionable (what went wrong + how to fix)
+- Tables: no borders, one row per entry
+- Respect `NO_COLOR`, `TERM=dumb`, `--no-color`
+- Never require prompts (always allow flag override)
+- Suggest next commands with `→ hawkop <next-command>`
+
+**Before adding a new command, verify against the checklist in `docs/CLI_DESIGN_PRINCIPLES.md`.**
+
 ## Coding Conventions
 
 - Rust 2021 edition, idiomatic ownership, `?` for error propagation
