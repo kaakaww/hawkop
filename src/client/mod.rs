@@ -271,6 +271,10 @@ pub struct Scan {
     /// HawkScan version used for this scan
     #[serde(default)]
     pub version: String,
+
+    /// User ID who initiated the scan
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_user_id: Option<String>,
 }
 
 /// Custom deserializer for timestamp that handles both int64 and string
@@ -319,6 +323,31 @@ pub struct ScanResult {
     /// Application host URL
     #[serde(default)]
     pub app_host: Option<String>,
+
+    /// Policy name used for this scan (may be empty, prefer metadata.tags.policyDisplayName)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_name: Option<String>,
+
+    /// Scan tags (name-value pairs)
+    #[serde(default)]
+    pub tags: Vec<ScanTag>,
+
+    /// Scan metadata with extended context (userId, policyName, etc.)
+    #[serde(default)]
+    pub metadata: Option<ScanMetadata>,
+}
+
+/// Scan tag (name-value metadata pair)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanTag {
+    /// Tag name
+    #[serde(default)]
+    pub name: String,
+
+    /// Tag value
+    #[serde(default)]
+    pub value: String,
 }
 
 /// Alert statistics from scan results
@@ -558,6 +587,21 @@ pub struct ScanAlertsResponse {
     pub total_count: Option<i64>,
 }
 
+/// Scan metadata containing tags as key-value pairs
+///
+/// The API returns `metadata.tags` as a HashMap with various scan context:
+/// - `userId`: The UUID of the user who initiated the scan
+/// - `policyName`: The policy code name (e.g., "DEFAULT_API")
+/// - `policyDisplayName`: The human-friendly policy name (e.g., "OpenAPI/REST API")
+/// - `isCustomPolicy`: Whether the policy is customized
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanMetadata {
+    /// Key-value tags containing scan context (userId, policyName, etc.)
+    #[serde(default)]
+    pub tags: std::collections::HashMap<String, String>,
+}
+
 /// Scan result containing populated alerts list
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -589,6 +633,18 @@ pub struct ScanResultWithAlerts {
     /// Application host URL
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_host: Option<String>,
+
+    /// Policy name used for this scan (may be empty, prefer metadata.tags.policyDisplayName)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_name: Option<String>,
+
+    /// Scan tags (name-value pairs)
+    #[serde(default)]
+    pub tags: Vec<ScanTag>,
+
+    /// Scan metadata with extended context (userId, policyName, etc.)
+    #[serde(default)]
+    pub metadata: Option<ScanMetadata>,
 }
 
 /// Custom deserializer for fields that may be int or string (u32)
