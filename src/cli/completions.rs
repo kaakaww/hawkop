@@ -19,8 +19,8 @@ use crate::config::Config;
 const MAX_COMPLETIONS: usize = 25;
 
 /// Timeout for completion API calls.
-/// Using generous timeout for testing - optimize after profiling.
-const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Profiling shows ~750ms typical response time; 2s gives buffer for slow networks.
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Create a blocking runtime for completion API calls.
 ///
@@ -177,31 +177,185 @@ pub fn complete_app_names() -> Vec<CompletionCandidate> {
         .collect()
 }
 
+/// Extract scan ID from command line args during completion.
+///
+/// During completion, the shell passes the partial command line as args.
+/// For `hawkop scan get <scan_id> --plugin-id <TAB>`, we need to find
+/// the scan ID in position after "scan get".
+fn extract_scan_id_from_args() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Find "scan" followed by "get" (or "g" alias) in args
+    let mut found_scan = false;
+    let mut found_get = false;
+
+    for arg in args.iter() {
+        if arg == "scan" {
+            found_scan = true;
+            continue;
+        }
+        if found_scan && (arg == "get" || arg == "g") {
+            found_get = true;
+            continue;
+        }
+        if found_get {
+            // Next non-flag argument after "scan get" is the scan ID
+            if !arg.starts_with('-') && !arg.is_empty() && arg != "latest" {
+                // Validate it looks like a UUID (has dashes)
+                if arg.contains('-') && arg.len() > 8 {
+                    return Some(arg.clone());
+                }
+            }
+            // If we hit a flag, keep looking in case scan_id comes later
+            if arg.starts_with('-') {
+                continue;
+            }
+        }
+    }
+    None
+}
+
 /// Complete plugin IDs for a specific scan.
 ///
-/// Requires scan ID to be present in the command line.
+/// Parses command line to extract scan ID, then fetches alerts for that scan.
 /// Format: `{plugin_id}` with help `{name} | {severity} | {count} paths`
-///
-/// Note: Context-dependent completions (needing scan_id from args) are complex
-/// with clap_complete's current API. For now, returns empty.
-/// Future: Parse env vars or use clap's completion context when available.
 pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
-    // TODO: Extract scan_id from command line context
-    // clap_complete's ValueCandidates doesn't receive parsed args,
-    // so context-dependent completions require workarounds
-    vec![]
+    // Extract scan ID from command line context
+    let Some(scan_id) = extract_scan_id_from_args() else {
+        return vec![];
+    };
+
+    let Some((config, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(_org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(
+            COMPLETION_TIMEOUT,
+            client.list_scan_alerts(&scan_id, None),
+        )
+        .await
+    });
+
+    let alerts = match result {
+        Ok(Ok(alerts)) => alerts,
+        _ => return vec![],
+    };
+
+    alerts
+        .into_iter()
+        .take(MAX_COMPLETIONS)
+        .map(|alert| {
+            let path_word = if alert.uri_count == 1 { "path" } else { "paths" };
+            let help = format!(
+                "{} | {} | {} {}",
+                truncate_str(&alert.name, 30),
+                alert.severity,
+                alert.uri_count,
+                path_word
+            );
+            CompletionCandidate::new(alert.plugin_id).help(Some(help.into()))
+        })
+        .collect()
 }
 
 /// Complete URI IDs for a specific scan.
 ///
-/// Requires scan ID to be present in the command line.
-/// Format: `{uri_id}` with help `{method} {path} | {plugin} | {severity}`
+/// Parses command line to extract scan ID and optionally plugin ID,
+/// then fetches URIs for that scan/plugin.
+/// Format: `{uri_id}` with help `{method} {path} | {plugin_name}`
 ///
-/// Note: Context-dependent completions (needing scan_id from args) are complex
-/// with clap_complete's current API. For now, returns empty.
+/// Note: URI completion requires an additional API call per plugin, which
+/// is slow. For now, we fetch URIs for the first plugin only if a plugin_id
+/// is specified on the command line, otherwise return empty.
 pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
-    // TODO: Extract scan_id from command line context
+    // Extract scan ID from command line context
+    let Some(scan_id) = extract_scan_id_from_args() else {
+        return vec![];
+    };
+
+    // Extract plugin ID if present (for scoped URI completion)
+    let plugin_id = extract_plugin_id_from_args();
+
+    let Some((config, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(_org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    // If plugin_id is specified, fetch URIs for that plugin
+    if let Some(ref pid) = plugin_id {
+        let result = rt.block_on(async {
+            tokio::time::timeout(
+                COMPLETION_TIMEOUT,
+                client.get_alert_with_paths(&scan_id, pid, None),
+            )
+            .await
+        });
+
+        let alert_response = match result {
+            Ok(Ok(response)) => response,
+            _ => return vec![],
+        };
+
+        let alert_name = alert_response.alert.name.clone();
+        return alert_response
+            .application_scan_alert_uris
+            .into_iter()
+            .take(MAX_COMPLETIONS)
+            .map(|uri| {
+                let help = format!(
+                    "{} {} | {}",
+                    uri.request_method,
+                    truncate_str(&uri.uri, 40),
+                    &alert_name
+                );
+                CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into()))
+            })
+            .collect();
+    }
+
+    // Without plugin_id, fetching all URIs would be too slow
+    // Return empty - user should specify --plugin-id first or use scan output
     vec![]
+}
+
+/// Extract plugin ID from command line args during completion.
+fn extract_plugin_id_from_args() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+
+    for (i, arg) in args.iter().enumerate() {
+        if (arg == "--plugin-id" || arg == "-p") && i + 1 < args.len() {
+            let value = &args[i + 1];
+            if !value.is_empty() && !value.starts_with('-') {
+                return Some(value.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Truncate a string to max length, adding "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len - 3])
+    }
 }
 
 /// Format a Unix timestamp to short format (Jan 3 20:54)
