@@ -88,6 +88,7 @@ async fn run() -> Result<()> {
             ScanCommands::Get {
                 scan_id,
                 app,
+                app_id,
                 env,
                 plugin_id,
                 uri_id,
@@ -100,6 +101,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &scan_id,
                     app.as_deref(),
+                    app_id.as_deref(),
                     env.as_deref(),
                     plugin_id.as_deref(),
                     uri_id.as_deref(),

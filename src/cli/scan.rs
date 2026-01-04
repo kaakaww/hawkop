@@ -26,12 +26,16 @@ pub struct ScanContext {
     pub env: String,
     /// Application host URL
     pub host: Option<String>,
+    /// Scan ID (UUID)
+    pub scan_id: String,
     /// HawkScan version
     pub version: String,
     /// Scan timestamp (Unix epoch milliseconds)
     pub timestamp: String,
     /// Scan duration in seconds
     pub duration: Option<String>,
+    /// Scan status
+    pub status: String,
 }
 
 impl ScanContext {
@@ -41,38 +45,69 @@ impl ScanContext {
             app_name: scan.scan.application_name.clone(),
             env: scan.scan.env.clone(),
             host: scan.app_host.clone(),
+            scan_id: scan.scan.id.clone(),
             version: scan.scan.version.clone(),
             timestamp: scan.scan.timestamp.clone(),
             duration: scan.scan_duration.clone(),
+            status: scan.scan.status.clone(),
         }
     }
 
-    /// Format the scan banner for display
+    /// Format the scan banner for display (consistent with default view)
+    ///
+    /// Produces a condensed banner matching the default view style:
+    /// ```text
+    /// App: X | Env: Y | Host: Z
+    /// Scan ID: ... | Completed: ... | Duration: ... | Status: ...
+    /// HawkScan: ...
+    /// ```
     pub fn format_banner(&self) -> String {
         let mut lines = Vec::new();
 
-        // Header line: App / Environment
-        let header = format!("── {} / {} ", self.app_name, self.env);
-        let padding = "─".repeat(72_usize.saturating_sub(header.len()));
-        lines.push(format!("{}{}", header, padding));
-
-        // Line 2: Host and HawkScan version
-        let host_str = self.host.as_deref().unwrap_or("N/A");
-        let version_str = if self.version.is_empty() {
-            "N/A"
+        // Line 1: App | Env | Host
+        let app_name = if self.app_name.is_empty() {
+            "--".to_string()
         } else {
-            &self.version
+            self.app_name.clone()
         };
-        lines.push(format!(" Host: {}  HawkScan: {}", host_str, version_str));
+        let env_name = if self.env.is_empty() {
+            "--".to_string()
+        } else {
+            self.env.clone()
+        };
+        if let Some(ref host) = self.host {
+            if !host.is_empty() {
+                lines.push(format!(
+                    "App: {} | Env: {} | Host: {}",
+                    app_name, env_name, host
+                ));
+            } else {
+                lines.push(format!("App: {} | Env: {}", app_name, env_name));
+            }
+        } else {
+            lines.push(format!("App: {} | Env: {}", app_name, env_name));
+        }
 
-        // Line 3: Date and Duration
+        // Line 2: Scan ID | Completed | Duration | Status
         let date_str = format_timestamp_local(&self.timestamp);
         let duration_str = self
             .duration
             .as_ref()
             .map(|d| format_duration_seconds(d))
-            .unwrap_or_else(|| "N/A".to_string());
-        lines.push(format!(" Date: {}  Duration: {}", date_str, duration_str));
+            .unwrap_or_else(|| "--".to_string());
+        let status_str = format_scan_status(&self.status);
+        lines.push(format!(
+            "Scan ID: {} | Completed: {} | Duration: {} | Status: {}",
+            self.scan_id, date_str, duration_str, status_str
+        ));
+
+        // Line 3: HawkScan version
+        let version_str = if self.version.is_empty() {
+            "--".to_string()
+        } else {
+            self.version.clone()
+        };
+        lines.push(format!("HawkScan: {}", version_str));
 
         lines.join("\n")
     }
@@ -428,6 +463,7 @@ pub async fn get(
     config_path: Option<&str>,
     scan_id: &str,
     app: Option<&str>,
+    app_id: Option<&str>,
     env: Option<&str>,
     plugin_id: Option<&str>,
     uri_id: Option<&str>,
@@ -438,9 +474,9 @@ pub async fn get(
 
     // Validate: can't use filters with specific scan ID
     let is_latest = scan_id == "latest" || scan_id.is_empty();
-    if !is_latest && (app.is_some() || env.is_some()) {
+    if !is_latest && (app.is_some() || app_id.is_some() || env.is_some()) {
         return Err(crate::error::ApiError::BadRequest(
-            "Cannot specify both scan ID and filters (--app, --env). \
+            "Cannot specify both scan ID and filters (--app, --app-id, --env). \
              Use filters only with 'latest' or omit scan ID."
                 .to_string(),
         )
@@ -449,7 +485,7 @@ pub async fn get(
 
     // Resolve scan ID if using "latest"
     let resolved_id = if is_latest {
-        resolve_latest_scan(&ctx, org_id, app, env).await?
+        resolve_latest_scan(&ctx, org_id, app, app_id, env).await?
     } else {
         scan_id.to_string()
     };
@@ -474,19 +510,49 @@ pub async fn get(
 }
 
 /// Resolve "latest" scan ID with optional app/env filters
+///
+/// Supports two ways to filter by application:
+/// - `app`: Filter by application name (looks up the app ID via API)
+/// - `app_id`: Filter by application ID directly
 async fn resolve_latest_scan(
     ctx: &CommandContext,
     org_id: &str,
     app: Option<&str>,
+    app_id: Option<&str>,
     env: Option<&str>,
 ) -> Result<String> {
-    debug!("Resolving latest scan (app={:?}, env={:?})", app, env);
+    debug!(
+        "Resolving latest scan (app={:?}, app_id={:?}, env={:?})",
+        app, app_id, env
+    );
+
+    // Resolve app name to app ID if provided
+    let resolved_app_id = if let Some(app_name) = app {
+        // Look up application by name
+        let apps = ctx.client.list_apps(org_id, None).await?;
+        let matching_app = apps.iter().find(|a| a.name.eq_ignore_ascii_case(app_name));
+        match matching_app {
+            Some(a) => {
+                debug!("Resolved app '{}' to ID '{}'", app_name, a.id);
+                Some(a.id.clone())
+            }
+            None => {
+                return Err(crate::error::ApiError::NotFound(format!(
+                    "Application '{}' not found. Use 'hawkop app list' to see available applications.",
+                    app_name
+                ))
+                .into());
+            }
+        }
+    } else {
+        app_id.map(|s| s.to_string())
+    };
 
     // Build filter params if any filters specified
-    let filter_params = if app.is_some() || env.is_some() {
+    let filter_params = if resolved_app_id.is_some() || env.is_some() {
         let mut params = ScanFilterParams::new();
-        if let Some(app_id) = app {
-            params = params.app_ids(vec![app_id.to_string()]);
+        if let Some(ref aid) = resolved_app_id {
+            params = params.app_ids(vec![aid.clone()]);
         }
         if let Some(env_name) = env {
             params = params.envs(vec![env_name.to_string()]);
@@ -504,11 +570,13 @@ async fn resolve_latest_scan(
         .await?;
 
     if scans.is_empty() {
-        let filter_desc = match (app, env) {
-            (Some(a), Some(e)) => format!(" for app '{}' and env '{}'", a, e),
-            (Some(a), None) => format!(" for app '{}'", a),
-            (None, Some(e)) => format!(" for env '{}'", e),
-            (None, None) => String::new(),
+        let filter_desc = match (app, app_id, env) {
+            (Some(a), _, Some(e)) => format!(" for app '{}' and env '{}'", a, e),
+            (Some(a), _, None) => format!(" for app '{}'", a),
+            (_, Some(a), Some(e)) => format!(" for app ID '{}' and env '{}'", a, e),
+            (_, Some(a), None) => format!(" for app ID '{}'", a),
+            (None, None, Some(e)) => format!(" for env '{}'", e),
+            (None, None, None) => String::new(),
         };
         return Err(crate::error::ApiError::NotFound(format!(
             "No scans found{}. Run a scan first or check your filters.",
@@ -637,8 +705,23 @@ async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str)
             // Alerts table with detailed triage columns
             if !alerts.is_empty() {
                 println!();
-                let display_alerts: Vec<PrettyAlertDisplay> =
-                    alerts.into_iter().map(PrettyAlertDisplay::from).collect();
+                // Sort by severity (High → Medium → Low) then by plugin_id for stable ordering
+                let mut sorted_alerts = alerts;
+                sorted_alerts.sort_by(|a, b| {
+                    let severity_order = |s: &str| match s.to_uppercase().as_str() {
+                        "HIGH" => 0,
+                        "MEDIUM" => 1,
+                        "LOW" => 2,
+                        _ => 3,
+                    };
+                    severity_order(&a.severity)
+                        .cmp(&severity_order(&b.severity))
+                        .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+                });
+                let display_alerts: Vec<PrettyAlertDisplay> = sorted_alerts
+                    .into_iter()
+                    .map(PrettyAlertDisplay::from)
+                    .collect();
                 display_alerts.print(OutputFormat::Table)?;
             } else {
                 println!("\nNo findings.");
@@ -810,11 +893,10 @@ async fn show_alert_detail(
 
             display_paths.print(OutputFormat::Table)?;
 
-            // Navigation hint
+            // Navigation hint (use full scan ID for consistency)
             if !display_paths.is_empty() {
-                let short_id = &scan_id[..8.min(scan_id.len())];
                 eprintln!();
-                eprintln!("Continue: hawkop scan get {} --uri-id <uri-id>", short_id);
+                eprintln!("Continue: hawkop scan get {} --uri-id <uri-id>", scan_id);
             }
         }
         OutputFormat::Json => {
@@ -900,11 +982,10 @@ async fn show_uri_detail_by_id(
                         }
                     }
 
-                    let short_id = &scan_id[..8.min(scan_id.len())];
                     eprintln!();
                     eprintln!(
                         "Continue: hawkop scan get {} --uri-id {} -m",
-                        short_id, uri_id
+                        scan_id, uri_id
                     );
                 }
                 OutputFormat::Json => {
@@ -929,7 +1010,7 @@ async fn show_uri_detail_by_id(
 
     Err(crate::error::ApiError::NotFound(format!(
         "URI '{}' not found in scan. Use 'hawkop scan get {} --plugin-id <id>' to see available URIs.",
-        uri_id, &scan_id[..8.min(scan_id.len())]
+        uri_id, scan_id
     ))
     .into())
 }
@@ -989,7 +1070,7 @@ async fn show_message_by_uri(
 
     Err(crate::error::ApiError::NotFound(format!(
         "URI '{}' not found in scan. Use 'hawkop scan get {} --plugin-id <id>' to see available URIs.",
-        uri_id, &scan_id[..8.min(scan_id.len())]
+        uri_id, scan_id
     ))
     .into())
 }

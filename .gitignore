@@ -41,3 +41,6 @@ config.yaml
 tarpaulin-report.html
 cobertura.xml
 lcov.info
+
+# Serena AI MCP
+/.serena/

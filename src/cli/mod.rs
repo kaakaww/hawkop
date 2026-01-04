@@ -184,7 +184,8 @@ pub enum ScanCommands {
         visible_alias = "g",
         after_help = "EXAMPLES:\n  \
             hawkop scan get                          # Latest scan (overview + alerts)\n  \
-            hawkop scan get --app myapp              # Latest for app\n  \
+            hawkop scan get --app myapp              # Latest for app (by name)\n  \
+            hawkop scan get --app-id <uuid>          # Latest for app (by ID)\n  \
             hawkop scan get abc123                   # Specific scan\n  \
             hawkop scan get abc123 --plugin-id 40012 # Plugin detail\n  \
             hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message"
@@ -194,9 +195,13 @@ pub enum ScanCommands {
         #[arg(default_value = "latest")]
         scan_id: String,
 
-        /// Filter by application (only with "latest")
-        #[arg(long, short = 'a')]
+        /// Filter by application name (only with "latest")
+        #[arg(long, short = 'a', conflicts_with = "app_id")]
         app: Option<String>,
+
+        /// Filter by application ID (only with "latest")
+        #[arg(long = "app-id")]
+        app_id: Option<String>,
 
         /// Filter by environment (only with "latest")
         #[arg(long, short = 'e')]
