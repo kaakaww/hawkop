@@ -14,7 +14,7 @@ http-tests = []
 [dependencies]
 # CLI framework
 clap = { version = "4", features = ["derive", "env"] }
-clap_complete = "4"
+clap_complete = { version = "4", features = ["unstable-dynamic"] }
 
 # Async runtime & HTTP
 tokio = { version = "1", features = ["full"] }

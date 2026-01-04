@@ -1,6 +1,7 @@
 //! HawkOp CLI - Professional companion for the StackHawk DAST platform
 
 use clap::{CommandFactory, Parser};
+use clap_complete::env::CompleteEnv;
 use clap_complete::generate;
 
 mod cli;
@@ -16,9 +17,15 @@ use cli::{
 };
 use error::Result;
 
-#[tokio::main]
-async fn main() {
-    if let Err(err) = run().await {
+fn main() {
+    // Handle shell completion requests BEFORE starting tokio runtime.
+    // CompleteEnv::complete() will exit if handling a completion request.
+    // Our completion functions need their own runtime, which conflicts with tokio::main.
+    CompleteEnv::with_factory(Cli::command).complete();
+
+    // Now start the async runtime for normal command execution
+    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    if let Err(err) = runtime.block_on(run()) {
         eprintln!("Error: {}", err);
         std::process::exit(1);
     }

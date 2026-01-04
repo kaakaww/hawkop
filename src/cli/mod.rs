@@ -4,9 +4,11 @@ use clap::{Args, Parser, Subcommand};
 pub use clap_complete::Shell;
 
 use crate::client::PaginationParams;
+use completions::{app_name_candidates, plugin_id_candidates, scan_id_candidates, uri_id_candidates};
 
 pub mod app;
 pub mod audit;
+pub mod completions;
 pub mod config;
 pub mod context;
 pub mod init;
@@ -111,27 +113,22 @@ pub enum Commands {
     #[command(subcommand)]
     Audit(AuditCommands),
 
-    /// Generate shell completions
+    /// Generate shell completions (static)
     #[command(after_help = "\
-Setup:
-  bash:
-    hawkop completion bash > /etc/bash_completion.d/hawkop
-    # Or for user install:
-    hawkop completion bash >> ~/.bashrc
+Static completions (subcommands/flags only):
+  bash:   hawkop completion bash > /etc/bash_completion.d/hawkop
+  zsh:    hawkop completion zsh > \"${fpath[1]}/_hawkop\"
+  fish:   hawkop completion fish > ~/.config/fish/completions/hawkop.fish
 
-  zsh:
-    hawkop completion zsh > \"${fpath[1]}/_hawkop\"
-    # Or add to ~/.zshrc:
-    eval \"$(hawkop completion zsh)\"
+Dynamic completions (includes scan IDs, app names via API):
+  bash:   echo 'source <(COMPLETE=bash hawkop)' >> ~/.bashrc
+  zsh:    echo 'source <(COMPLETE=zsh hawkop)' >> ~/.zshrc
+  fish:   echo 'COMPLETE=fish hawkop | source' >> ~/.config/fish/config.fish
 
-  fish:
-    hawkop completion fish > ~/.config/fish/completions/hawkop.fish
-
-  powershell:
-    # Add to $PROFILE:
-    hawkop completion powershell | Out-String | Invoke-Expression")]
+Note: Dynamic completions query the StackHawk API when you press TAB.
+Re-source completions after upgrading hawkop.")]
     Completion {
-        /// Shell to generate completions for
+        /// Shell to generate completions for (static only)
         #[arg(value_enum)]
         shell: Shell,
     },
@@ -192,11 +189,11 @@ pub enum ScanCommands {
     )]
     Get {
         /// Scan ID (UUID) or "latest" - defaults to latest if omitted
-        #[arg(default_value = "latest")]
+        #[arg(default_value = "latest", add = scan_id_candidates())]
         scan_id: String,
 
         /// Filter by application name (only with "latest")
-        #[arg(long, short = 'a', conflicts_with = "app_id")]
+        #[arg(long, short = 'a', conflicts_with = "app_id", add = app_name_candidates())]
         app: Option<String>,
 
         /// Filter by application ID (only with "latest")
@@ -208,11 +205,11 @@ pub enum ScanCommands {
         env: Option<String>,
 
         /// Show detail for specific plugin/vulnerability type
-        #[arg(long = "plugin-id", short = 'p')]
+        #[arg(long = "plugin-id", short = 'p', add = plugin_id_candidates())]
         plugin_id: Option<String>,
 
         /// Show detail for specific URI/finding (unique within scan)
-        #[arg(long = "uri-id", short = 'u')]
+        #[arg(long = "uri-id", short = 'u', add = uri_id_candidates())]
         uri_id: Option<String>,
 
         /// Include HTTP request/response (requires --uri-id)

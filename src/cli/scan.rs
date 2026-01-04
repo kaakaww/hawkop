@@ -528,20 +528,35 @@ async fn resolve_latest_scan(
 
     // Resolve app name to app ID if provided
     let resolved_app_id = if let Some(app_name) = app {
-        // Look up application by name
+        // Look up application by name (handle duplicates)
         let apps = ctx.client.list_apps(org_id, None).await?;
-        let matching_app = apps.iter().find(|a| a.name.eq_ignore_ascii_case(app_name));
-        match matching_app {
-            Some(a) => {
-                debug!("Resolved app '{}' to ID '{}'", app_name, a.id);
-                Some(a.id.clone())
-            }
-            None => {
+        let matching_apps: Vec<_> = apps
+            .iter()
+            .filter(|a| a.name.eq_ignore_ascii_case(app_name))
+            .collect();
+
+        match matching_apps.len() {
+            0 => {
                 return Err(crate::error::ApiError::NotFound(format!(
                     "Application '{}' not found. Use 'hawkop app list' to see available applications.",
                     app_name
                 ))
                 .into());
+            }
+            1 => {
+                debug!("Resolved app '{}' to ID '{}'", app_name, matching_apps[0].id);
+                Some(matching_apps[0].id.clone())
+            }
+            _ => {
+                // Multiple apps with same name - require --app-id for disambiguation
+                let mut msg = format!("Multiple applications match '{}':\n", app_name);
+                for app in &matching_apps {
+                    let env_info = app.env.as_deref().unwrap_or("--");
+                    let short_id = &app.id[..8.min(app.id.len())];
+                    msg.push_str(&format!("  • {} ({}) - env: {}\n", app.name, short_id, env_info));
+                }
+                msg.push_str("\nUse --app-id <uuid> to specify exactly which one.");
+                return Err(crate::error::ApiError::BadRequest(msg).into());
             }
         }
     } else {
