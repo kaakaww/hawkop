@@ -592,6 +592,10 @@ fn format_audit_timestamp(timestamp_ms: i64) -> String {
 // ============================================================================
 
 /// Alert (plugin) display model for `scan <id> alerts` table.
+///
+/// Note: Replaced by `PrettyAlertDisplay` for the default view, but kept for
+/// backwards compatibility and potential future use in table format.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Tabled, Serialize)]
 pub struct AlertDisplay {
     /// Plugin ID
@@ -664,6 +668,90 @@ impl From<&ApplicationAlert> for AlertDisplay {
     }
 }
 
+/// Pretty alert display model for `scan get` with detailed triage columns.
+///
+/// This display format matches the mockup with columns:
+/// PLUGIN | SEVERITY | NAME | PATHS | NEW | ASSIGNED | ACCEPTED | FALSE+ | CWE
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct PrettyAlertDisplay {
+    /// Plugin ID
+    #[tabled(rename = "PLUGIN")]
+    pub plugin_id: String,
+
+    /// Severity level (High, Medium, Low)
+    #[tabled(rename = "SEVERITY")]
+    pub severity: String,
+
+    /// Plugin/vulnerability name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Number of affected paths
+    #[tabled(rename = "PATHS")]
+    pub paths: String,
+
+    /// New (UNKNOWN status) findings count
+    #[tabled(rename = "NEW")]
+    pub new: String,
+
+    /// Assigned (PROMOTED status) findings count
+    #[tabled(rename = "ASSIGNED")]
+    pub assigned: String,
+
+    /// Accepted (ACCEPTED/RISK_ACCEPTED status) findings count
+    #[tabled(rename = "ACCEPTED")]
+    pub accepted: String,
+
+    /// False positive (FALSE_POSITIVE status) findings count
+    #[tabled(rename = "FALSE+")]
+    pub false_positive: String,
+
+    /// CWE identifier
+    #[tabled(rename = "CWE")]
+    pub cwe: String,
+}
+
+impl From<ApplicationAlert> for PrettyAlertDisplay {
+    fn from(alert: ApplicationAlert) -> Self {
+        // Count by triage status
+        let mut new_count = 0u32;
+        let mut assigned_count = 0u32;
+        let mut accepted_count = 0u32;
+        let mut false_positive_count = 0u32;
+
+        for status_stat in &alert.alert_status_stats {
+            match status_stat.alert_status.as_str() {
+                "UNKNOWN" => new_count += status_stat.total_count,
+                "PROMOTED" => assigned_count += status_stat.total_count,
+                "ACCEPTED" | "RISK_ACCEPTED" => accepted_count += status_stat.total_count,
+                "FALSE_POSITIVE" => false_positive_count += status_stat.total_count,
+                _ => {}
+            }
+        }
+
+        Self {
+            plugin_id: alert.plugin_id,
+            severity: alert.severity.clone(),
+            name: truncate_string(&alert.name, 25),
+            paths: alert.uri_count.to_string(),
+            new: new_count.to_string(),
+            assigned: assigned_count.to_string(),
+            accepted: accepted_count.to_string(),
+            false_positive: false_positive_count.to_string(),
+            cwe: alert
+                .cwe_id
+                .map(|c| format!("CWE-{}", c))
+                .unwrap_or_else(|| "--".to_string()),
+        }
+    }
+}
+
+impl From<&ApplicationAlert> for PrettyAlertDisplay {
+    fn from(alert: &ApplicationAlert) -> Self {
+        PrettyAlertDisplay::from(alert.clone())
+    }
+}
+
 /// Alert finding (path) display model for `scan <id> alert <plugin>` table.
 #[derive(Debug, Clone, Tabled, Serialize)]
 pub struct AlertFindingDisplay {
@@ -707,11 +795,16 @@ impl From<&ApplicationAlertUri> for AlertFindingDisplay {
 }
 
 /// Scan overview for multi-section display (`scan <id>`)
+///
+/// Note: Replaced by the inline formatting in `show_pretty_overview()`, but kept
+/// for backwards compatibility and potential future use.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanOverview {
     pub scan: ScanResult,
 }
 
+#[allow(dead_code)]
 impl ScanOverview {
     pub fn new(scan: ScanResult) -> Self {
         Self { scan }
@@ -917,6 +1010,10 @@ impl AlertMessageDetail {
 }
 
 /// Count findings by severity from AlertStats
+///
+/// Note: Used by ScanOverview which is currently not in use but kept for
+/// backwards compatibility.
+#[allow(dead_code)]
 fn count_findings_by_severity(stats: &crate::client::AlertStats) -> (u32, u32, u32, u32, u32, u32) {
     let mut high_new = 0u32;
     let mut high_triaged = 0u32;
@@ -1360,12 +1457,16 @@ mod tests {
                 status: "COMPLETED".to_string(),
                 timestamp: "1703721600000".to_string(), // 2023-12-28
                 version: "5.0.0".to_string(),
+                external_user_id: None,
             },
             scan_duration: Some("120".to_string()),
             url_count: Some(50),
             alert_stats: None,
             severity_stats: None,
             app_host: Some("https://testapp.example.com".to_string()),
+            policy_name: None,
+            tags: vec![],
+            metadata: None,
         };
 
         let display = ScanDisplay::from(result);
@@ -1398,6 +1499,7 @@ mod tests {
                 status: "COMPLETED".to_string(),
                 timestamp: "1703721600000".to_string(),
                 version: "5.0.0".to_string(),
+                external_user_id: None,
             },
             scan_duration: Some("300".to_string()),
             url_count: Some(100),
@@ -1419,6 +1521,9 @@ mod tests {
             }),
             severity_stats: None,
             app_host: Some("https://vulnapp.example.com".to_string()),
+            policy_name: None,
+            tags: vec![],
+            metadata: None,
         };
 
         let display = ScanDisplay::from(result);
@@ -1744,12 +1849,16 @@ mod tests {
                 status: "COMPLETED".to_string(),
                 timestamp: "1703721600000".to_string(),
                 version: "5.0.0".to_string(),
+                external_user_id: None,
             },
             scan_duration: None,
             url_count: None,
             alert_stats: None,
             severity_stats: None,
             app_host: None,
+            policy_name: None,
+            tags: vec![],
+            metadata: None,
         };
 
         assert_eq!(format_findings(&result), "--");
@@ -1775,6 +1884,7 @@ mod tests {
                 status: "COMPLETED".to_string(),
                 timestamp: "1703721600000".to_string(),
                 version: "5.0.0".to_string(),
+                external_user_id: None,
             },
             scan_duration: None,
             url_count: None,
@@ -1796,6 +1906,9 @@ mod tests {
             }),
             severity_stats: None,
             app_host: None,
+            policy_name: None,
+            tags: vec![],
+            metadata: None,
         };
 
         let findings = format_findings(&result);

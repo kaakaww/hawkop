@@ -179,24 +179,44 @@ pub enum ScanCommands {
         pagination: PaginationArgs,
     },
 
-    /// View scan details and drill down into findings
+    /// Get scan details with optional drill-down
     #[command(
-        name = "view",
-        visible_alias = "v",
-        after_help = "DRILL-DOWN NAVIGATION:\n  \
-            scan view <id>                                  Show scan overview\n  \
-            scan view <id> alerts                           List all alerts\n  \
-            scan view <id> alert <plugin>                   Alert detail with paths\n  \
-            scan view <id> alert <plugin> uri <uri-id>      URI detail with evidence\n  \
-            scan view <id> alert <plugin> uri <uri-id> message  HTTP request/response"
+        visible_alias = "g",
+        after_help = "EXAMPLES:\n  \
+            hawkop scan get                          # Latest scan (overview + alerts)\n  \
+            hawkop scan get --app myapp              # Latest for app\n  \
+            hawkop scan get abc123                   # Specific scan\n  \
+            hawkop scan get abc123 --plugin-id 40012 # Plugin detail\n  \
+            hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message"
     )]
-    View {
-        /// Scan ID (UUID)
+    Get {
+        /// Scan ID (UUID) or "latest" - defaults to latest if omitted
+        #[arg(default_value = "latest")]
         scan_id: String,
 
-        /// Drill-down: alerts | alert <plugin> [uri <uri-id>] [message]
-        #[arg(trailing_var_arg = true)]
-        args: Vec<String>,
+        /// Filter by application (only with "latest")
+        #[arg(long, short = 'a')]
+        app: Option<String>,
+
+        /// Filter by environment (only with "latest")
+        #[arg(long, short = 'e')]
+        env: Option<String>,
+
+        /// Show detail for specific plugin/vulnerability type
+        #[arg(long = "plugin-id", short = 'p')]
+        plugin_id: Option<String>,
+
+        /// Show detail for specific URI/finding (unique within scan)
+        #[arg(long = "uri-id", short = 'u')]
+        uri_id: Option<String>,
+
+        /// Include HTTP request/response (requires --uri-id)
+        #[arg(long, short = 'm', requires = "uri_id")]
+        message: bool,
+
+        /// Output format: pretty (default), table, json
+        #[arg(long, short = 'o', default_value = "pretty")]
+        format: OutputFormat,
     },
 }
 
@@ -415,10 +435,13 @@ impl PaginationArgs {
 }
 
 /// Output format options
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum OutputFormat {
-    /// Table format
+    /// Pretty format - human-optimized rich formatting
+    Pretty,
+    /// Table format - machine-parseable, one row per entry (global default)
+    #[default]
     Table,
-    /// JSON format
+    /// JSON format - structured for scripts/APIs
     Json,
 }

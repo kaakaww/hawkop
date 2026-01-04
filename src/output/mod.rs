@@ -37,7 +37,8 @@ where
 {
     fn format(&self, format: OutputFormat) -> Result<String> {
         match format {
-            OutputFormat::Table => Ok(table::format_table(self)),
+            // Pretty and Table both use table format for list commands
+            OutputFormat::Pretty | OutputFormat::Table => Ok(table::format_table(self)),
             OutputFormat::Json => json::format_json(self).map_err(|e| {
                 crate::error::Error::Other(format!("JSON serialization failed: {}", e))
             }),

@@ -72,7 +72,7 @@ pub async fn get(
     })?;
 
     match ctx.format {
-        OutputFormat::Table => {
+        OutputFormat::Pretty | OutputFormat::Table => {
             println!("{}", "Current Default Organization".bold());
             println!();
             println!("  ID:   {}", org.id);

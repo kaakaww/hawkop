@@ -9,7 +9,7 @@ use crate::client::{
 };
 use crate::error::Result;
 use crate::models::{
-    AlertDetail, AlertDisplay, AlertFindingDisplay, AlertMessageDetail, ScanDisplay, ScanOverview,
+    AlertDetail, AlertFindingDisplay, AlertMessageDetail, PrettyAlertDisplay, ScanDisplay,
 };
 use crate::output::Formattable;
 
@@ -410,139 +410,259 @@ fn get_new_findings(scan: &ScanResult) -> (u32, u32, u32) {
 }
 
 // ============================================================================
-// Scan View / Drill-Down Commands
+// Scan Get / Drill-Down Commands
 // ============================================================================
 
-/// Drill-down depth parsed from positional arguments
-#[derive(Debug)]
-enum DrillDown {
-    /// Show scan overview (no args)
-    ScanOverview,
-    /// List all alerts (args: ["alerts"])
-    AlertsList,
-    /// Show specific alert with paths (args: ["alert", <plugin_id>])
-    AlertDetail { plugin_id: String },
-    /// Show specific path detail (args: ["alert", <plugin_id>, "uri", <uri_id>])
-    UriDetail { plugin_id: String, uri_id: String },
-    /// Show HTTP message (args: ["alert", <plugin_id>, "uri", <uri_id>, "message"])
-    Message { plugin_id: String, uri_id: String },
-}
-
-impl DrillDown {
-    /// Parse drill-down command from positional arguments
-    fn parse(args: &[String]) -> Result<Self> {
-        if args.is_empty() {
-            return Ok(DrillDown::ScanOverview);
-        }
-
-        let first = args[0].to_lowercase();
-
-        match first.as_str() {
-            "alerts" => Ok(DrillDown::AlertsList),
-            "alert" => {
-                if args.len() < 2 {
-                    return Err(crate::error::ApiError::BadRequest(
-                        "Usage: scan view <id> alert <plugin-id> [uri <uri-id> [message]]"
-                            .to_string(),
-                    )
-                    .into());
-                }
-
-                let plugin_id = args[1].clone();
-
-                if args.len() == 2 {
-                    // scan view <id> alert <plugin>
-                    return Ok(DrillDown::AlertDetail { plugin_id });
-                }
-
-                // Check for "uri" keyword
-                let third = args[2].to_lowercase();
-                if third != "uri" {
-                    return Err(crate::error::ApiError::BadRequest(
-                        format!("Expected 'uri' keyword, got '{}'. Usage: alert <plugin> uri <uri-id> [message]", args[2])
-                    )
-                    .into());
-                }
-
-                if args.len() < 4 {
-                    return Err(crate::error::ApiError::BadRequest(
-                        "Usage: alert <plugin-id> uri <uri-id> [message]".to_string(),
-                    )
-                    .into());
-                }
-
-                let uri_id = args[3].clone();
-
-                if args.len() == 4 {
-                    // scan view <id> alert <plugin> uri <uri>
-                    Ok(DrillDown::UriDetail { plugin_id, uri_id })
-                } else {
-                    // scan view <id> alert <plugin> uri <uri> message
-                    let fifth = args[4].to_lowercase();
-                    if fifth == "message" || fifth == "msg" {
-                        Ok(DrillDown::Message { plugin_id, uri_id })
-                    } else {
-                        Ok(DrillDown::UriDetail { plugin_id, uri_id })
-                    }
-                }
-            }
-            _ => Err(crate::error::ApiError::BadRequest(format!(
-                "Unknown drill-down command: '{}'. Use 'alerts' or 'alert <plugin-id>'",
-                first
-            ))
-            .into()),
-        }
-    }
-}
-
-/// Run the scan view/drill-down command
+/// Run the scan get command with flag-based drill-down
 ///
-/// Supports positional cascade for navigating scan results:
-/// - `scan <id>` - Scan overview
-/// - `scan <id> alerts` - List all alerts
-/// - `scan <id> alert <plugin>` - Alert detail with paths
-/// - `scan <id> alert <plugin> <uri> message` - HTTP request/response
-pub async fn view(
+/// Supports flag-based navigation for exploring scan results:
+/// - `scan get` - Latest scan with overview + alerts table
+/// - `scan get <id>` - Specific scan overview + alerts
+/// - `scan get <id> --plugin-id <p>` - Plugin detail with paths
+/// - `scan get <id> --uri-id <u>` - URI detail with evidence
+/// - `scan get <id> --uri-id <u> -m` - URI detail with HTTP message
+#[allow(clippy::too_many_arguments)]
+pub async fn get(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
     scan_id: &str,
-    args: &[String],
+    app: Option<&str>,
+    env: Option<&str>,
+    plugin_id: Option<&str>,
+    uri_id: Option<&str>,
+    message: bool,
 ) -> Result<()> {
     let ctx = CommandContext::new(format, org_override, config_path).await?;
     let org_id = ctx.require_org_id()?;
 
-    let drill_down = DrillDown::parse(args)?;
-    debug!("Drill-down: {:?}", drill_down);
+    // Validate: can't use filters with specific scan ID
+    let is_latest = scan_id == "latest" || scan_id.is_empty();
+    if !is_latest && (app.is_some() || env.is_some()) {
+        return Err(crate::error::ApiError::BadRequest(
+            "Cannot specify both scan ID and filters (--app, --env). \
+             Use filters only with 'latest' or omit scan ID."
+                .to_string(),
+        )
+        .into());
+    }
 
-    match drill_down {
-        DrillDown::ScanOverview => show_scan_overview(&ctx, org_id, scan_id).await,
-        DrillDown::AlertsList => show_alerts_list(&ctx, org_id, scan_id).await,
-        DrillDown::AlertDetail { plugin_id } => {
-            show_alert_detail(&ctx, org_id, scan_id, &plugin_id).await
-        }
-        DrillDown::UriDetail { plugin_id, uri_id } => {
-            show_uri_detail(&ctx, org_id, scan_id, &plugin_id, &uri_id).await
-        }
-        DrillDown::Message { plugin_id, uri_id } => {
-            show_message(&ctx, org_id, scan_id, &plugin_id, &uri_id).await
-        }
+    // Resolve scan ID if using "latest"
+    let resolved_id = if is_latest {
+        resolve_latest_scan(&ctx, org_id, app, env).await?
+    } else {
+        scan_id.to_string()
+    };
+
+    debug!(
+        "Scan get: id={}, plugin={:?}, uri={:?}, message={}",
+        resolved_id, plugin_id, uri_id, message
+    );
+
+    // Determine detail level based on flags
+    match (plugin_id, uri_id, message) {
+        (None, None, false) => show_pretty_overview(&ctx, org_id, &resolved_id).await,
+        (Some(p), None, false) => show_alert_detail(&ctx, org_id, &resolved_id, p).await,
+        (_, Some(u), false) => show_uri_detail_by_id(&ctx, org_id, &resolved_id, u).await,
+        (_, Some(u), true) => show_message_by_uri(&ctx, org_id, &resolved_id, u).await,
+        _ => Err(crate::error::ApiError::BadRequest(
+            "Invalid flag combination. Use --uri-id to show finding detail, add -m for HTTP message."
+                .to_string(),
+        )
+        .into()),
     }
 }
 
-/// Show scan overview (scan <id>)
-async fn show_scan_overview(ctx: &CommandContext, org_id: &str, scan_id: &str) -> Result<()> {
-    debug!("Fetching scan overview for {}", scan_id);
+/// Resolve "latest" scan ID with optional app/env filters
+async fn resolve_latest_scan(
+    ctx: &CommandContext,
+    org_id: &str,
+    app: Option<&str>,
+    env: Option<&str>,
+) -> Result<String> {
+    debug!("Resolving latest scan (app={:?}, env={:?})", app, env);
+
+    // Build filter params if any filters specified
+    let filter_params = if app.is_some() || env.is_some() {
+        let mut params = ScanFilterParams::new();
+        if let Some(app_id) = app {
+            params = params.app_ids(vec![app_id.to_string()]);
+        }
+        if let Some(env_name) = env {
+            params = params.envs(vec![env_name.to_string()]);
+        }
+        Some(params)
+    } else {
+        None
+    };
+
+    // Fetch just one scan (the most recent)
+    let pagination = PaginationParams::new().page_size(1).page(0);
+    let scans = ctx
+        .client
+        .list_scans(org_id, Some(&pagination), filter_params.as_ref())
+        .await?;
+
+    if scans.is_empty() {
+        let filter_desc = match (app, env) {
+            (Some(a), Some(e)) => format!(" for app '{}' and env '{}'", a, e),
+            (Some(a), None) => format!(" for app '{}'", a),
+            (None, Some(e)) => format!(" for env '{}'", e),
+            (None, None) => String::new(),
+        };
+        return Err(crate::error::ApiError::NotFound(format!(
+            "No scans found{}. Run a scan first or check your filters.",
+            filter_desc
+        ))
+        .into());
+    }
+
+    let scan_id = scans[0].scan.id.clone();
+    debug!("Resolved latest scan: {}", scan_id);
+    Ok(scan_id)
+}
+
+/// Show pretty overview combining scan metadata + alerts table (default view)
+///
+/// Output format matches the mockup:
+/// ```text
+/// Scan ID: <uuid> | User: <email>
+/// Completed: <date> | Duration: <duration>
+/// HawkScan: <version> | Policy: <policy>
+/// New: X High, Y Medium, Z Low | Triaged: A High, B Medium, C Low
+///
+/// PLUGIN  SEVERITY  NAME  PATHS  NEW  ASSIGNED  ACCEPTED  FALSE+  CWE
+/// ...
+///
+/// Tags:
+///   Key: Value
+///
+/// Continue: hawkop scan get <scan-id> --plugin-id <plugin-id>
+/// ```
+async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str) -> Result<()> {
+    debug!("Fetching pretty overview for {}", scan_id);
     let scan = ctx.client.get_scan(org_id, scan_id).await?;
 
     match ctx.format {
-        OutputFormat::Table => {
-            // Display banner
-            let scan_context = ScanContext::from_scan_result(&scan);
-            println!("{}\n", scan_context.format_banner());
+        OutputFormat::Pretty => {
+            // Fetch alerts for the table
+            let alerts = ctx.client.list_scan_alerts(scan_id, None).await?;
 
-            let overview = ScanOverview::new(scan);
-            println!("{}", overview.format_text(scan_id));
+            // Extract userId from metadata.tags (preferred) or fallback to scan.external_user_id
+            let user_id = scan
+                .metadata
+                .as_ref()
+                .and_then(|m| m.tags.get("userId").cloned())
+                .or_else(|| scan.scan.external_user_id.clone())
+                .filter(|id| !id.is_empty());
+
+            // Look up user display name (email preferred, then username, then full name)
+            let user_display = if let Some(ref uid) = user_id {
+                lookup_user_display(ctx, org_id, uid).await
+            } else {
+                None
+            };
+
+            // Line 1: App | Env | Host (context line with labels)
+            let app_name = if scan.scan.application_name.is_empty() {
+                "--".to_string()
+            } else {
+                scan.scan.application_name.clone()
+            };
+            let env_name = if scan.scan.env.is_empty() {
+                "--".to_string()
+            } else {
+                scan.scan.env.clone()
+            };
+            if let Some(ref host) = scan.app_host {
+                if !host.is_empty() {
+                    println!("App: {} | Env: {} | Host: {}", app_name, env_name, host);
+                } else {
+                    println!("App: {} | Env: {}", app_name, env_name);
+                }
+            } else {
+                println!("App: {} | Env: {}", app_name, env_name);
+            }
+
+            // Line 2: Scan ID | User
+            if let Some(ref user) = user_display {
+                println!("Scan ID: {} | User: {}", scan.scan.id, user);
+            } else {
+                println!("Scan ID: {}", scan.scan.id);
+            }
+
+            // Line 3: Completed date | Duration | Status
+            let completed_date = format_timestamp_local(&scan.scan.timestamp);
+            let duration_str = scan
+                .scan_duration
+                .as_ref()
+                .map(|d| format_duration_seconds(d))
+                .unwrap_or_else(|| "--".to_string());
+            let status_str = format_scan_status(&scan.scan.status);
+            println!(
+                "Completed: {} | Duration: {} | Status: {}",
+                completed_date, duration_str, status_str
+            );
+
+            // Line 3: HawkScan version | Policy
+            // Extract policy from metadata.tags.policyDisplayName (preferred) or fallback
+            let policy_name = scan
+                .metadata
+                .as_ref()
+                .and_then(|m| m.tags.get("policyDisplayName").cloned())
+                .or_else(|| {
+                    scan.metadata
+                        .as_ref()
+                        .and_then(|m| m.tags.get("policyName").cloned())
+                })
+                .or_else(|| scan.policy_name.clone())
+                .filter(|p| !p.is_empty());
+
+            let version_str = if scan.scan.version.is_empty() {
+                "--".to_string()
+            } else {
+                scan.scan.version.clone()
+            };
+            // Only show policy if it's present AND non-empty
+            if let Some(ref policy) = policy_name {
+                println!("HawkScan: {} | Policy: {}", version_str, policy);
+            } else {
+                println!("HawkScan: {}", version_str);
+            }
+
+            // Line 4: Findings summary - New vs Triaged by severity
+            let (new_summary, triaged_summary) = format_findings_summary(&scan);
+            println!("New: {} | Triaged: {}", new_summary, triaged_summary);
+
+            // Alerts table with detailed triage columns
+            if !alerts.is_empty() {
+                println!();
+                let display_alerts: Vec<PrettyAlertDisplay> =
+                    alerts.into_iter().map(PrettyAlertDisplay::from).collect();
+                display_alerts.print(OutputFormat::Table)?;
+            } else {
+                println!("\nNo findings.");
+            }
+
+            // Tags section
+            if !scan.tags.is_empty() {
+                println!("\nTags:");
+                for tag in &scan.tags {
+                    println!("  {}: {}", tag.name, tag.value);
+                }
+            }
+
+            // Navigation hint (use full scan ID)
+            eprintln!();
+            eprintln!(
+                "Continue: hawkop scan get {} --plugin-id <plugin-id>",
+                scan_id
+            );
+        }
+        OutputFormat::Table => {
+            // Table format: just show scan as a single-row table
+            let display_scans: Vec<ScanDisplay> = vec![ScanDisplay::from(scan)];
+            display_scans.print(ctx.format)?;
         }
         OutputFormat::Json => {
             let json = serde_json::to_string_pretty(&scan)?;
@@ -553,38 +673,108 @@ async fn show_scan_overview(ctx: &CommandContext, org_id: &str, scan_id: &str) -
     Ok(())
 }
 
-/// Show alerts list (scan <id> alerts)
-async fn show_alerts_list(ctx: &CommandContext, org_id: &str, scan_id: &str) -> Result<()> {
-    debug!("Fetching alerts for scan {}", scan_id);
+/// Look up user display name from Members API
+///
+/// Returns the best available identifier in order of preference:
+/// 1. Email address (preferred - most identifiable)
+/// 2. Full name
+/// 3. First + Last name
+async fn lookup_user_display(ctx: &CommandContext, org_id: &str, user_id: &str) -> Option<String> {
+    debug!("Looking up user {} in org {}", user_id, org_id);
 
-    // Fetch scan for banner context
-    let scan = ctx.client.get_scan(org_id, scan_id).await?;
-    let scan_context = ScanContext::from_scan_result(&scan);
+    // Fetch org members and find the one matching the user_id
+    match ctx.client.list_users(org_id, None).await {
+        Ok(users) => {
+            let user = users.into_iter().find(|u| u.external.id == user_id)?;
+            let ext = &user.external;
 
-    let alerts = ctx.client.list_scan_alerts(scan_id, None).await?;
-    let display_alerts: Vec<AlertDisplay> = alerts.into_iter().map(AlertDisplay::from).collect();
-
-    match ctx.format {
-        OutputFormat::Table => {
-            // Display banner
-            println!("{}\n", scan_context.format_banner());
-
-            display_alerts.print(ctx.format)?;
-
-            // Navigation hint
-            if !display_alerts.is_empty() {
-                println!("\n→ hawkop scan view {} alert <plugin-id>", scan_id);
+            // Prefer email, then full_name, then first+last
+            if !ext.email.is_empty() {
+                Some(ext.email.clone())
+            } else if let Some(ref name) = ext.full_name {
+                if !name.is_empty() {
+                    return Some(name.clone());
+                }
+                None
+            } else {
+                // Construct from first + last
+                match (&ext.first_name, &ext.last_name) {
+                    (Some(f), Some(l)) if !f.is_empty() || !l.is_empty() => {
+                        Some(format!("{} {}", f, l).trim().to_string())
+                    }
+                    (Some(f), None) if !f.is_empty() => Some(f.clone()),
+                    (None, Some(l)) if !l.is_empty() => Some(l.clone()),
+                    _ => None,
+                }
             }
         }
-        OutputFormat::Json => {
-            display_alerts.print(ctx.format)?;
+        Err(e) => {
+            debug!("Failed to lookup user {}: {}", user_id, e);
+            None
+        }
+    }
+}
+
+/// Format findings summary as "X High, Y Medium, Z Low" for both new and triaged
+fn format_findings_summary(result: &ScanResult) -> (String, String) {
+    let alert_stats = match &result.alert_stats {
+        Some(stats) => stats,
+        None => return ("--".to_string(), "--".to_string()),
+    };
+
+    // Collect counts by severity and status
+    let mut high_new = 0u32;
+    let mut high_triaged = 0u32;
+    let mut medium_new = 0u32;
+    let mut medium_triaged = 0u32;
+    let mut low_new = 0u32;
+    let mut low_triaged = 0u32;
+
+    for status_stat in &alert_stats.alert_status_stats {
+        let is_new = status_stat.alert_status == "UNKNOWN";
+        let is_triaged = status_stat.alert_status == "PROMOTED"
+            || status_stat.alert_status == "ACCEPTED"
+            || status_stat.alert_status == "FALSE_POSITIVE"
+            || status_stat.alert_status == "RISK_ACCEPTED";
+
+        for (severity, count) in &status_stat.severity_stats {
+            match severity.as_str() {
+                "High" => {
+                    if is_new {
+                        high_new += count;
+                    } else if is_triaged {
+                        high_triaged += count;
+                    }
+                }
+                "Medium" => {
+                    if is_new {
+                        medium_new += count;
+                    } else if is_triaged {
+                        medium_triaged += count;
+                    }
+                }
+                "Low" => {
+                    if is_new {
+                        low_new += count;
+                    } else if is_triaged {
+                        low_triaged += count;
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
-    Ok(())
+    let new_summary = format!("{} High, {} Medium, {} Low", high_new, medium_new, low_new);
+    let triaged_summary = format!(
+        "{} High, {} Medium, {} Low",
+        high_triaged, medium_triaged, low_triaged
+    );
+
+    (new_summary, triaged_summary)
 }
 
-/// Show alert detail with paths (scan <id> alert <plugin>)
+/// Show alert detail with paths (scan get <id> --plugin-id <plugin>)
 async fn show_alert_detail(
     ctx: &CommandContext,
     org_id: &str,
@@ -603,7 +793,7 @@ async fn show_alert_detail(
         .await?;
 
     match ctx.format {
-        OutputFormat::Table => {
+        OutputFormat::Pretty | OutputFormat::Table => {
             // Display banner
             println!("{}\n", scan_context.format_banner());
 
@@ -618,14 +808,13 @@ async fn show_alert_detail(
                 .map(AlertFindingDisplay::from)
                 .collect();
 
-            display_paths.print(ctx.format)?;
+            display_paths.print(OutputFormat::Table)?;
 
             // Navigation hint
             if !display_paths.is_empty() {
-                println!(
-                    "\n→ hawkop scan view {} alert {} uri <uri-id>",
-                    scan_id, plugin_id
-                );
+                let short_id = &scan_id[..8.min(scan_id.len())];
+                eprintln!();
+                eprintln!("Continue: hawkop scan get {} --uri-id <uri-id>", short_id);
             }
         }
         OutputFormat::Json => {
@@ -637,95 +826,172 @@ async fn show_alert_detail(
     Ok(())
 }
 
-/// Show URI detail (scan <id> alert <plugin> uri <uri-id>)
-async fn show_uri_detail(
+/// Show URI detail by URI ID (scan get <id> --uri-id <uri-id>)
+///
+/// Since URIs are unique within a scan, we can look up directly without plugin_id.
+/// This searches all alerts in the scan to find the matching URI.
+async fn show_uri_detail_by_id(
     ctx: &CommandContext,
     org_id: &str,
     scan_id: &str,
-    plugin_id: &str,
     uri_id: &str,
 ) -> Result<()> {
-    debug!(
-        "Fetching URI detail for scan {} alert {} uri {}",
-        scan_id, plugin_id, uri_id
-    );
+    debug!("Fetching URI detail for scan {} uri {}", scan_id, uri_id);
 
     // Fetch scan for banner context
     let scan = ctx.client.get_scan(org_id, scan_id).await?;
     let scan_context = ScanContext::from_scan_result(&scan);
 
-    // Get alert to find the specific path
-    let response = ctx
-        .client
-        .get_alert_with_paths(scan_id, plugin_id, None)
-        .await?;
+    // Get all alerts to find the one containing this URI
+    let alerts = ctx.client.list_scan_alerts(scan_id, None).await?;
 
-    let path = response
-        .application_scan_alert_uris
-        .iter()
-        .find(|p| p.alert_uri_id == uri_id)
-        .ok_or_else(|| crate::error::ApiError::NotFound(format!("URI not found: {}", uri_id)))?;
+    // Search each alert for the URI
+    for alert in &alerts {
+        let response = ctx
+            .client
+            .get_alert_with_paths(scan_id, &alert.plugin_id, None)
+            .await?;
 
-    // Fetch message to get evidence and other_info
-    let message = ctx
-        .client
-        .get_alert_message(scan_id, uri_id, &path.msg_id, false)
-        .await?;
+        if let Some(path) = response
+            .application_scan_alert_uris
+            .iter()
+            .find(|p| p.alert_uri_id == uri_id)
+        {
+            // Found the URI - fetch message for evidence
+            let message = ctx
+                .client
+                .get_alert_message(scan_id, uri_id, &path.msg_id, false)
+                .await?;
 
-    match ctx.format {
-        OutputFormat::Table => {
-            // Display banner
-            println!("{}\n", scan_context.format_banner());
+            match ctx.format {
+                OutputFormat::Pretty | OutputFormat::Table => {
+                    // Display banner
+                    println!("{}\n", scan_context.format_banner());
 
-            // Alert context
-            println!(
-                "{} [{}]",
-                response.alert.name,
-                format_severity(&response.alert.severity)
-            );
-            println!("────────────────────────────────────────────────────────────────────────");
+                    // Alert context
+                    println!(
+                        "{} [{}]",
+                        response.alert.name,
+                        format_severity(&response.alert.severity)
+                    );
+                    println!(
+                        "────────────────────────────────────────────────────────────────────────"
+                    );
 
-            // URI details
-            println!("Finding: {} {}", path.request_method, path.uri);
-            println!("Status:  {}", format_triage_status(&path.status));
+                    // URI details
+                    println!("Finding: {} {}", path.request_method, path.uri);
+                    println!("Status:  {}", format_triage_status(&path.status));
 
-            // Evidence (if present)
-            if let Some(ref evidence) = message.evidence
-                && !evidence.is_empty()
-            {
-                println!("\nEvidence:");
-                println!("  {}", evidence);
-            }
+                    // Evidence (if present)
+                    if let Some(ref evidence) = message.evidence
+                        && !evidence.is_empty()
+                    {
+                        println!("\nEvidence:");
+                        println!("  {}", evidence);
+                    }
 
-            // Other info (if present)
-            if let Some(ref other_info) = message.other_info
-                && !other_info.is_empty()
-            {
-                println!("\nOther Info:");
-                // Wrap long other_info text
-                for line in other_info.lines() {
-                    println!("  {}", line);
+                    // Other info (if present)
+                    if let Some(ref other_info) = message.other_info
+                        && !other_info.is_empty()
+                    {
+                        println!("\nOther Info:");
+                        for line in other_info.lines() {
+                            println!("  {}", line);
+                        }
+                    }
+
+                    let short_id = &scan_id[..8.min(scan_id.len())];
+                    eprintln!();
+                    eprintln!(
+                        "Continue: hawkop scan get {} --uri-id {} -m",
+                        short_id, uri_id
+                    );
+                }
+                OutputFormat::Json => {
+                    let combined = serde_json::json!({
+                        "uri": path,
+                        "alert": {
+                            "name": response.alert.name,
+                            "severity": response.alert.severity,
+                            "plugin_id": response.alert.plugin_id,
+                        },
+                        "evidence": message.evidence,
+                        "other_info": message.other_info,
+                    });
+                    let json = serde_json::to_string_pretty(&combined)?;
+                    println!("{}", json);
                 }
             }
 
-            println!(
-                "\n→ hawkop scan view {} alert {} uri {} message",
-                scan_id, plugin_id, uri_id
-            );
-        }
-        OutputFormat::Json => {
-            // Include both path and message data for JSON
-            let combined = serde_json::json!({
-                "uri": path,
-                "evidence": message.evidence,
-                "other_info": message.other_info,
-            });
-            let json = serde_json::to_string_pretty(&combined)?;
-            println!("{}", json);
+            return Ok(());
         }
     }
 
-    Ok(())
+    Err(crate::error::ApiError::NotFound(format!(
+        "URI '{}' not found in scan. Use 'hawkop scan get {} --plugin-id <id>' to see available URIs.",
+        uri_id, &scan_id[..8.min(scan_id.len())]
+    ))
+    .into())
+}
+
+/// Show HTTP message by URI ID (scan get <id> --uri-id <uri-id> -m)
+async fn show_message_by_uri(
+    ctx: &CommandContext,
+    org_id: &str,
+    scan_id: &str,
+    uri_id: &str,
+) -> Result<()> {
+    debug!("Fetching message for scan {} uri {}", scan_id, uri_id);
+
+    // Fetch scan for banner context
+    let scan = ctx.client.get_scan(org_id, scan_id).await?;
+    let scan_context = ScanContext::from_scan_result(&scan);
+
+    // Get all alerts to find the one containing this URI
+    let alerts = ctx.client.list_scan_alerts(scan_id, None).await?;
+
+    // Search each alert for the URI
+    for alert in &alerts {
+        let response = ctx
+            .client
+            .get_alert_with_paths(scan_id, &alert.plugin_id, None)
+            .await?;
+
+        if let Some(path) = response
+            .application_scan_alert_uris
+            .iter()
+            .find(|p| p.alert_uri_id == uri_id)
+        {
+            // Found the URI - fetch message with curl command
+            let message = ctx
+                .client
+                .get_alert_message(scan_id, uri_id, &path.msg_id, true)
+                .await?;
+
+            match ctx.format {
+                OutputFormat::Pretty | OutputFormat::Table => {
+                    // Display banner
+                    println!("{}\n", scan_context.format_banner());
+
+                    let detail = AlertMessageDetail::new(message)
+                        .with_context(&response.alert.name, &response.alert.severity);
+                    println!("{}", detail.format_text());
+                }
+                OutputFormat::Json => {
+                    let json = serde_json::to_string_pretty(&message)?;
+                    println!("{}", json);
+                }
+            }
+
+            return Ok(());
+        }
+    }
+
+    Err(crate::error::ApiError::NotFound(format!(
+        "URI '{}' not found in scan. Use 'hawkop scan get {} --plugin-id <id>' to see available URIs.",
+        uri_id, &scan_id[..8.min(scan_id.len())]
+    ))
+    .into())
 }
 
 /// Format severity for display
@@ -739,59 +1005,6 @@ fn format_severity(severity: &str) -> String {
     }
 }
 
-/// Show HTTP message (scan <id> alert <plugin> uri <uri-id> message)
-async fn show_message(
-    ctx: &CommandContext,
-    org_id: &str,
-    scan_id: &str,
-    plugin_id: &str,
-    uri_id: &str,
-) -> Result<()> {
-    debug!(
-        "Fetching message for scan {} alert {} uri {}",
-        scan_id, plugin_id, uri_id
-    );
-
-    // Fetch scan for banner context
-    let scan = ctx.client.get_scan(org_id, scan_id).await?;
-    let scan_context = ScanContext::from_scan_result(&scan);
-
-    // Get the alert to find the message ID and context
-    let alert_response = ctx
-        .client
-        .get_alert_with_paths(scan_id, plugin_id, None)
-        .await?;
-
-    let path = alert_response
-        .application_scan_alert_uris
-        .iter()
-        .find(|p| p.alert_uri_id == uri_id)
-        .ok_or_else(|| crate::error::ApiError::NotFound(format!("URI not found: {}", uri_id)))?;
-
-    // Fetch the message with curl validation command
-    let message = ctx
-        .client
-        .get_alert_message(scan_id, uri_id, &path.msg_id, true)
-        .await?;
-
-    match ctx.format {
-        OutputFormat::Table => {
-            // Display banner
-            println!("{}\n", scan_context.format_banner());
-
-            let detail = AlertMessageDetail::new(message)
-                .with_context(&alert_response.alert.name, &alert_response.alert.severity);
-            println!("{}", detail.format_text());
-        }
-        OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&message)?;
-            println!("{}", json);
-        }
-    }
-
-    Ok(())
-}
-
 /// Format triage status for display
 fn format_triage_status(status: &str) -> String {
     match status {
@@ -799,6 +1012,17 @@ fn format_triage_status(status: &str) -> String {
         "PROMOTED" => "Triaged".to_string(),
         "ACCEPTED" | "RISK_ACCEPTED" => "Accepted".to_string(),
         "FALSE_POSITIVE" => "False Positive".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Format scan status for display (normalize case, human-friendly)
+fn format_scan_status(status: &str) -> String {
+    match status.to_uppercase().as_str() {
+        "STARTED" => "Running".to_string(),
+        "COMPLETED" => "Complete".to_string(),
+        "ERROR" => "Failed".to_string(),
+        "UNKNOWN" => "Unknown".to_string(),
         other => other.to_string(),
     }
 }

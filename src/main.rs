@@ -85,13 +85,25 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
-            ScanCommands::View { scan_id, args } => {
-                cli::scan::view(
-                    cli.format,
+            ScanCommands::Get {
+                scan_id,
+                app,
+                env,
+                plugin_id,
+                uri_id,
+                message,
+                format,
+            } => {
+                cli::scan::get(
+                    format, // Use command-level format (defaults to pretty)
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &scan_id,
-                    &args,
+                    app.as_deref(),
+                    env.as_deref(),
+                    plugin_id.as_deref(),
+                    uri_id.as_deref(),
+                    message,
                 )
                 .await
             }

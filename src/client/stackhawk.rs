@@ -830,6 +830,9 @@ impl StackHawkApi for StackHawkClient {
             alert_stats: result.alert_stats,
             severity_stats: None,
             app_host: result.app_host,
+            policy_name: result.policy_name,
+            tags: result.tags,
+            metadata: result.metadata,
         })
     }
 
