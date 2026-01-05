@@ -16,7 +16,7 @@ use crate::client::{JwtToken, PaginationParams, StackHawkApi, StackHawkClient};
 use crate::config::Config;
 
 /// Maximum number of completion candidates to return
-const MAX_COMPLETIONS: usize = 25;
+const MAX_COMPLETIONS: usize = 10;
 
 /// Timeout for completion API calls.
 /// URI completion needs more time due to multiple parallel requests.
@@ -241,10 +241,21 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
         tokio::time::timeout(COMPLETION_TIMEOUT, client.list_scan_alerts(&scan_id, None)).await
     });
 
-    let alerts = match result {
+    let mut alerts = match result {
         Ok(Ok(alerts)) => alerts,
         _ => return vec![],
     };
+
+    // Sort by severity: High → Medium → Low (most critical first)
+    alerts.sort_by(|a, b| {
+        let severity_rank = |s: &str| match s {
+            "High" => 0,
+            "Medium" => 1,
+            "Low" => 2,
+            _ => 3,
+        };
+        severity_rank(&a.severity).cmp(&severity_rank(&b.severity))
+    });
 
     alerts
         .into_iter()
@@ -337,13 +348,16 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
 ///
 /// This is used when --plugin-id is not specified. It:
 /// 1. Fetches all alerts (plugins) for the scan
-/// 2. Fetches URIs for each plugin in parallel
-/// 3. Collects up to MAX_COMPLETIONS URIs total
+/// 2. Fetches URIs for each plugin using streaming futures
+/// 3. Returns EARLY as soon as MAX_COMPLETIONS URIs are collected
+///
+/// Uses FuturesUnordered instead of join_all to process results as they
+/// arrive and exit immediately when we have enough completions.
 async fn complete_all_uri_ids(
     scan_id: &str,
     client: Arc<StackHawkClient>,
 ) -> Vec<CompletionCandidate> {
-    use futures::future::join_all;
+    use futures::stream::{FuturesUnordered, StreamExt};
 
     // First, get all alerts (plugins) for this scan
     let alerts_result =
@@ -358,9 +372,8 @@ async fn complete_all_uri_ids(
         return vec![];
     }
 
-    // Fetch URIs for each plugin in parallel
-    // Limit to first 10 plugins to avoid too many API calls
-    let plugin_futures: Vec<_> = alerts
+    // Create streaming futures for each plugin (up to 10)
+    let mut futures: FuturesUnordered<_> = alerts
         .iter()
         .take(10)
         .map(|alert| {
@@ -370,14 +383,12 @@ async fn complete_all_uri_ids(
             let plugin_name = alert.name.clone();
 
             async move {
-                let result = tokio::time::timeout(
-                    COMPLETION_TIMEOUT,
-                    client.get_alert_with_paths(&scan_id, &plugin_id, None),
-                )
-                .await;
+                let result = client
+                    .get_alert_with_paths(&scan_id, &plugin_id, None)
+                    .await;
 
                 match result {
-                    Ok(Ok(response)) => response
+                    Ok(response) => response
                         .application_scan_alert_uris
                         .into_iter()
                         .map(|uri| (uri, plugin_name.clone()))
@@ -388,32 +399,33 @@ async fn complete_all_uri_ids(
         })
         .collect();
 
-    // Apply overall timeout for all parallel requests
-    let all_uris_result = tokio::time::timeout(
-        COMPLETION_TIMEOUT * 2, // Give extra time for parallel requests
-        join_all(plugin_futures),
-    )
-    .await;
+    let mut candidates = Vec::with_capacity(MAX_COMPLETIONS);
 
-    let all_uris = match all_uris_result {
-        Ok(results) => results.into_iter().flatten().collect::<Vec<_>>(),
-        _ => return vec![],
+    // Process results as they complete, exit early when we have enough
+    // Overall timeout prevents hanging if some requests are slow
+    let stream_with_timeout = async {
+        while let Some(uris) = futures.next().await {
+            for (uri, plugin_name) in uris {
+                let help = format!(
+                    "{} {} | {}",
+                    uri.request_method,
+                    truncate_str(&uri.uri, 40),
+                    truncate_str(&plugin_name, 25)
+                );
+                candidates.push(CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into())));
+
+                // EARLY EXIT: Return as soon as we have enough
+                if candidates.len() >= MAX_COMPLETIONS {
+                    return candidates;
+                }
+            }
+        }
+        candidates
     };
 
-    // Convert to completion candidates
-    all_uris
-        .into_iter()
-        .take(MAX_COMPLETIONS)
-        .map(|(uri, plugin_name)| {
-            let help = format!(
-                "{} {} | {}",
-                uri.request_method,
-                truncate_str(&uri.uri, 40),
-                truncate_str(&plugin_name, 25)
-            );
-            CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into()))
-        })
-        .collect()
+    tokio::time::timeout(COMPLETION_TIMEOUT * 2, stream_with_timeout)
+        .await
+        .unwrap_or_default()
 }
 
 /// Extract plugin ID from command line args during completion.
