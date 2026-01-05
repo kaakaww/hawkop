@@ -184,7 +184,7 @@ fn format_duration_seconds(seconds_str: &str) -> String {
 }
 
 /// Default limit for scan list display
-const DEFAULT_SCAN_LIMIT: usize = 25;
+const DEFAULT_SCAN_LIMIT: usize = 10;
 
 /// Requested page size for scans endpoint
 const SCAN_API_PAGE_SIZE: usize = 100;
