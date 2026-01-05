@@ -748,11 +748,34 @@ async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str)
                 println!("\nNo findings.");
             }
 
-            // Tags section
+            // Tags section - deduplicated and filtered
             if !scan.tags.is_empty() {
-                println!("\nTags:");
-                for tag in &scan.tags {
-                    println!("  {}: {}", tag.name, tag.value);
+                // Deduplicate by tag name (keep first occurrence) and filter out:
+                // - Unexpanded env vars like ${RELEASE_TAG}
+                // - Empty values
+                let mut seen = std::collections::HashSet::new();
+                let filtered_tags: Vec<_> = scan
+                    .tags
+                    .iter()
+                    .filter(|tag| {
+                        // Skip duplicates
+                        if !seen.insert(&tag.name) {
+                            return false;
+                        }
+                        // Skip unexpanded env vars (contain ${...})
+                        if tag.value.contains("${") && tag.value.contains('}') {
+                            return false;
+                        }
+                        // Skip empty values
+                        !tag.value.is_empty()
+                    })
+                    .collect();
+
+                if !filtered_tags.is_empty() {
+                    println!("\nTags:");
+                    for tag in filtered_tags {
+                        println!("  {}: {}", tag.name, tag.value);
+                    }
                 }
             }
 
