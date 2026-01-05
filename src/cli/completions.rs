@@ -19,8 +19,8 @@ use crate::config::Config;
 const MAX_COMPLETIONS: usize = 25;
 
 /// Timeout for completion API calls.
-/// Profiling shows ~750ms typical response time; 2s gives buffer for slow networks.
-const COMPLETION_TIMEOUT: Duration = Duration::from_secs(2);
+/// URI completion needs more time due to multiple parallel requests.
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Create a blocking runtime for completion API calls.
 ///
@@ -238,11 +238,7 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
     };
 
     let result = rt.block_on(async {
-        tokio::time::timeout(
-            COMPLETION_TIMEOUT,
-            client.list_scan_alerts(&scan_id, None),
-        )
-        .await
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_scan_alerts(&scan_id, None)).await
     });
 
     let alerts = match result {
@@ -254,7 +250,11 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
         .into_iter()
         .take(MAX_COMPLETIONS)
         .map(|alert| {
-            let path_word = if alert.uri_count == 1 { "path" } else { "paths" };
+            let path_word = if alert.uri_count == 1 {
+                "path"
+            } else {
+                "paths"
+            };
             let help = format!(
                 "{} | {} | {} {}",
                 truncate_str(&alert.name, 30),
@@ -273,9 +273,8 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
 /// then fetches URIs for that scan/plugin.
 /// Format: `{uri_id}` with help `{method} {path} | {plugin_name}`
 ///
-/// Note: URI completion requires an additional API call per plugin, which
-/// is slow. For now, we fetch URIs for the first plugin only if a plugin_id
-/// is specified on the command line, otherwise return empty.
+/// If plugin ID is specified, fetches URIs for that plugin only (fast).
+/// Otherwise, fetches all plugins and their URIs in parallel (slower but complete).
 pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
     // Extract scan ID from command line context
     let Some(scan_id) = extract_scan_id_from_args() else {
@@ -297,7 +296,7 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
         return vec![];
     };
 
-    // If plugin_id is specified, fetch URIs for that plugin
+    // If plugin_id is specified, fetch URIs for that plugin only (fast path)
     if let Some(ref pid) = plugin_id {
         let result = rt.block_on(async {
             tokio::time::timeout(
@@ -329,9 +328,92 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
             .collect();
     }
 
-    // Without plugin_id, fetching all URIs would be too slow
-    // Return empty - user should specify --plugin-id first or use scan output
-    vec![]
+    // No plugin_id specified - fetch all plugins and their URIs in parallel
+    // This is slower but provides complete URI completion
+    rt.block_on(async { complete_all_uri_ids(&scan_id, client).await })
+}
+
+/// Fetch all URI IDs for a scan by querying each plugin in parallel.
+///
+/// This is used when --plugin-id is not specified. It:
+/// 1. Fetches all alerts (plugins) for the scan
+/// 2. Fetches URIs for each plugin in parallel
+/// 3. Collects up to MAX_COMPLETIONS URIs total
+async fn complete_all_uri_ids(
+    scan_id: &str,
+    client: Arc<StackHawkClient>,
+) -> Vec<CompletionCandidate> {
+    use futures::future::join_all;
+
+    // First, get all alerts (plugins) for this scan
+    let alerts_result =
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_scan_alerts(scan_id, None)).await;
+
+    let alerts = match alerts_result {
+        Ok(Ok(alerts)) => alerts,
+        _ => return vec![],
+    };
+
+    if alerts.is_empty() {
+        return vec![];
+    }
+
+    // Fetch URIs for each plugin in parallel
+    // Limit to first 10 plugins to avoid too many API calls
+    let plugin_futures: Vec<_> = alerts
+        .iter()
+        .take(10)
+        .map(|alert| {
+            let client = client.clone();
+            let scan_id = scan_id.to_string();
+            let plugin_id = alert.plugin_id.clone();
+            let plugin_name = alert.name.clone();
+
+            async move {
+                let result = tokio::time::timeout(
+                    COMPLETION_TIMEOUT,
+                    client.get_alert_with_paths(&scan_id, &plugin_id, None),
+                )
+                .await;
+
+                match result {
+                    Ok(Ok(response)) => response
+                        .application_scan_alert_uris
+                        .into_iter()
+                        .map(|uri| (uri, plugin_name.clone()))
+                        .collect::<Vec<_>>(),
+                    _ => vec![],
+                }
+            }
+        })
+        .collect();
+
+    // Apply overall timeout for all parallel requests
+    let all_uris_result = tokio::time::timeout(
+        COMPLETION_TIMEOUT * 2, // Give extra time for parallel requests
+        join_all(plugin_futures),
+    )
+    .await;
+
+    let all_uris = match all_uris_result {
+        Ok(results) => results.into_iter().flatten().collect::<Vec<_>>(),
+        _ => return vec![],
+    };
+
+    // Convert to completion candidates
+    all_uris
+        .into_iter()
+        .take(MAX_COMPLETIONS)
+        .map(|(uri, plugin_name)| {
+            let help = format!(
+                "{} {} | {}",
+                uri.request_method,
+                truncate_str(&uri.uri, 40),
+                truncate_str(&plugin_name, 25)
+            );
+            CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into()))
+        })
+        .collect()
 }
 
 /// Extract plugin ID from command line args during completion.

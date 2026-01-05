@@ -544,7 +544,10 @@ async fn resolve_latest_scan(
                 .into());
             }
             1 => {
-                debug!("Resolved app '{}' to ID '{}'", app_name, matching_apps[0].id);
+                debug!(
+                    "Resolved app '{}' to ID '{}'",
+                    app_name, matching_apps[0].id
+                );
                 Some(matching_apps[0].id.clone())
             }
             _ => {
@@ -553,7 +556,10 @@ async fn resolve_latest_scan(
                 for app in &matching_apps {
                     let env_info = app.env.as_deref().unwrap_or("--");
                     let short_id = &app.id[..8.min(app.id.len())];
-                    msg.push_str(&format!("  • {} ({}) - env: {}\n", app.name, short_id, env_info));
+                    msg.push_str(&format!(
+                        "  • {} ({}) - env: {}\n",
+                        app.name, short_id, env_info
+                    ));
                 }
                 msg.push_str("\nUse --app-id <uuid> to specify exactly which one.");
                 return Err(crate::error::ApiError::BadRequest(msg).into());

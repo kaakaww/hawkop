@@ -4,7 +4,9 @@ use clap::{Args, Parser, Subcommand};
 pub use clap_complete::Shell;
 
 use crate::client::PaginationParams;
-use completions::{app_name_candidates, plugin_id_candidates, scan_id_candidates, uri_id_candidates};
+use completions::{
+    app_name_candidates, plugin_id_candidates, scan_id_candidates, uri_id_candidates,
+};
 
 pub mod app;
 pub mod audit;
