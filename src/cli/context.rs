@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::cache::CachedStackHawkClient;
 use crate::cli::OutputFormat;
 use crate::client::{JwtToken, StackHawkApi, StackHawkClient};
 use crate::config::Config;
@@ -20,8 +21,8 @@ use crate::error::Result;
 pub struct CommandContext {
     /// Loaded and validated configuration
     pub config: Config,
-    /// Authenticated API client (Arc-wrapped for parallel request support)
-    pub client: Arc<StackHawkClient>,
+    /// Authenticated API client with caching (Arc-wrapped for parallel request support)
+    pub client: Arc<CachedStackHawkClient<StackHawkClient>>,
     /// Output format preference
     pub format: OutputFormat,
 }
@@ -33,13 +34,14 @@ impl CommandContext {
     /// - Loading config from path (or default location)
     /// - Applying org_id override if provided
     /// - Validating authentication (API key present)
-    /// - Creating the API client
+    /// - Creating the API client with caching wrapper
     /// - Authenticating and caching JWT token
     ///
     /// # Arguments
     /// * `format` - Output format (table/json)
     /// * `org_override` - Optional organization ID to override config
     /// * `config_path` - Optional path to config file (defaults to ~/.hawkop/config.yaml)
+    /// * `no_cache` - Whether to bypass the response cache
     ///
     /// # Errors
     /// Returns error if config cannot be loaded or authentication is invalid.
@@ -47,6 +49,7 @@ impl CommandContext {
         format: OutputFormat,
         org_override: Option<&str>,
         config_path: Option<&str>,
+        no_cache: bool,
     ) -> Result<Self> {
         let mut config = Config::load_at(config_path)?;
         config.validate_auth()?;
@@ -56,13 +59,14 @@ impl CommandContext {
             config.org_id = Some(org.to_string());
         }
 
-        let client = Arc::new(StackHawkClient::new(config.api_key.clone())?);
+        // Create the raw client first (need to set JWT before wrapping)
+        let raw_client = StackHawkClient::new(config.api_key.clone())?;
 
         // Use cached JWT if valid, otherwise authenticate and cache
         if !config.is_token_expired() {
             // Use cached token
             if let Some(ref jwt) = config.jwt {
-                client
+                raw_client
                     .set_jwt(JwtToken {
                         token: jwt.token.clone(),
                         expires_at: jwt.expires_at,
@@ -72,7 +76,7 @@ impl CommandContext {
         } else {
             // Authenticate and cache the new token
             let api_key = config.api_key.as_ref().expect("validated above");
-            let jwt = client.authenticate(api_key).await?;
+            let jwt = raw_client.authenticate(api_key).await?;
 
             // Save to config for future runs
             config.jwt = Some(crate::config::JwtToken {
@@ -82,8 +86,11 @@ impl CommandContext {
             config.save_at(config_path)?;
 
             // Set on client
-            client.set_jwt(jwt).await;
+            raw_client.set_jwt(jwt).await;
         }
+
+        // Wrap with caching layer (disabled if --no-cache)
+        let client = Arc::new(CachedStackHawkClient::new(raw_client, !no_cache));
 
         Ok(Self {
             config,

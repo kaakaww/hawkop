@@ -109,6 +109,31 @@ impl From<serde_yaml::Error> for ConfigError {
     }
 }
 
+/// Cache-related errors
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("Cache database error: {0}")]
+    Database(String),
+
+    #[error("Cache I/O error: {0}")]
+    Io(String),
+
+    #[error("Could not determine cache directory")]
+    NoHome,
+}
+
+impl From<rusqlite::Error> for CacheError {
+    fn from(err: rusqlite::Error) -> Self {
+        CacheError::Database(err.to_string())
+    }
+}
+
+impl From<CacheError> for Error {
+    fn from(err: CacheError) -> Self {
+        Error::Other(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

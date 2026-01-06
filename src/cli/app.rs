@@ -21,8 +21,9 @@ pub async fn list(
     config_path: Option<&str>,
     app_type: Option<&str>,
     pagination: &PaginationArgs,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     // Fetch apps using totalCount-based parallel pagination

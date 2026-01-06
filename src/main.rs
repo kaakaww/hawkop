@@ -4,6 +4,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::env::CompleteEnv;
 use clap_complete::generate;
 
+mod cache;
 mod cli;
 mod client;
 mod config;
@@ -12,8 +13,9 @@ mod models;
 mod output;
 
 use cli::{
-    AppCommands, AuditCommands, Cli, Commands, ConfigCommands, OasCommands, OrgCommands,
-    PolicyCommands, RepoCommands, ScanCommands, SecretCommands, TeamCommands, UserCommands,
+    AppCommands, AuditCommands, CacheCommands, Cli, Commands, ConfigCommands, OasCommands,
+    OrgCommands, PolicyCommands, RepoCommands, ScanCommands, SecretCommands, TeamCommands,
+    UserCommands,
 };
 use error::Result;
 
@@ -57,10 +59,20 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Commands::Org(org_cmd) => match org_cmd {
-            OrgCommands::List => cli::org::list(cli.format, cli.config.as_deref()).await,
-            OrgCommands::Set { org_id } => cli::org::set(org_id, cli.config.as_deref()).await,
+            OrgCommands::List => {
+                cli::org::list(cli.format, cli.config.as_deref(), cli.no_cache).await
+            }
+            OrgCommands::Set { org_id } => {
+                cli::org::set(org_id, cli.config.as_deref(), cli.no_cache).await
+            }
             OrgCommands::Get => {
-                cli::org::get(cli.format, cli.org.as_deref(), cli.config.as_deref()).await
+                cli::org::get(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    cli.no_cache,
+                )
+                .await
             }
         },
         Commands::App(app_cmd) => match app_cmd {
@@ -74,6 +86,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     app_type.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -89,6 +102,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &filters,
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -113,6 +127,7 @@ async fn run() -> Result<()> {
                     plugin_id.as_deref(),
                     uri_id.as_deref(),
                     message,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -124,6 +139,7 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -135,6 +151,7 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -146,6 +163,7 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -157,6 +175,7 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -168,6 +187,7 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
@@ -179,12 +199,15 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    cli.no_cache,
                 )
                 .await
             }
         },
         Commands::Secret(secret_cmd) => match secret_cmd {
-            SecretCommands::List => cli::secret::list(cli.format, cli.config.as_deref()).await,
+            SecretCommands::List => {
+                cli::secret::list(cli.format, cli.config.as_deref(), cli.no_cache).await
+            }
         },
         Commands::Audit(audit_cmd) => match audit_cmd {
             AuditCommands::List { filters } => {
@@ -193,9 +216,15 @@ async fn run() -> Result<()> {
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &filters,
+                    cli.no_cache,
                 )
                 .await
             }
+        },
+        Commands::Cache(cache_cmd) => match cache_cmd {
+            CacheCommands::Status => cli::cache::status(cli.format),
+            CacheCommands::Clear => cli::cache::clear(cli.format),
+            CacheCommands::Path => cli::cache::path(),
         },
         Commands::Completion { shell } => {
             generate(shell, &mut Cli::command(), "hawkop", &mut std::io::stdout());

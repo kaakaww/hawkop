@@ -199,7 +199,7 @@ impl<T> PaginatedResponse<T> {
 /// Response wrapper for parallel pagination using totalCount.
 ///
 /// Used to calculate remaining pages after the first request and fetch them in parallel.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PagedResponse<T> {
     /// The items from this page
     pub items: Vec<T>,

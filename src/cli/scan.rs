@@ -202,8 +202,9 @@ pub async fn list(
     config_path: Option<&str>,
     filters: &ScanFilterArgs,
     pagination: &PaginationArgs,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     let display_limit = pagination.limit.unwrap_or(DEFAULT_SCAN_LIMIT);
@@ -468,8 +469,9 @@ pub async fn get(
     plugin_id: Option<&str>,
     uri_id: Option<&str>,
     message: bool,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     // Validate: can't use filters with specific scan ID

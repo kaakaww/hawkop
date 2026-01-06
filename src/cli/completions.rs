@@ -1,7 +1,8 @@
 //! Dynamic shell completions for HawkOp CLI
 //!
 //! Provides TAB completion for scan IDs, app names, plugin IDs, and URI IDs
-//! by querying the StackHawk API at completion time.
+//! by querying the StackHawk API at completion time. Results are cached locally
+//! to improve responsiveness.
 //!
 //! Shell support:
 //! - Fish/Zsh: Full support with descriptions
@@ -12,6 +13,7 @@ use std::time::Duration;
 
 use clap_complete::engine::{ArgValueCandidates, CompletionCandidate};
 
+use crate::cache::{CacheStorage, CacheTtl, cache_key};
 use crate::client::{JwtToken, PaginationParams, StackHawkApi, StackHawkClient};
 use crate::config::Config;
 
@@ -80,17 +82,66 @@ fn completion_context() -> Option<(Config, Arc<StackHawkClient>)> {
     Some((config, client))
 }
 
+/// Get or create cache storage for completions.
+/// Returns None if cache cannot be opened (completions will work without caching).
+fn completion_cache() -> Option<CacheStorage> {
+    CacheStorage::open().ok()
+}
+
+/// Try to get cached completion data.
+fn get_cached<T: serde::de::DeserializeOwned>(cache: &CacheStorage, key: &str) -> Option<T> {
+    cache
+        .get(key)
+        .ok()
+        .flatten()
+        .and_then(|data| serde_json::from_slice(&data).ok())
+}
+
+/// Store completion data in cache.
+fn set_cached<T: serde::Serialize>(
+    cache: &CacheStorage,
+    key: &str,
+    data: &T,
+    endpoint: &str,
+    org_id: Option<&str>,
+    ttl: Duration,
+) {
+    if let Ok(json) = serde_json::to_vec(data) {
+        let _ = cache.put(key, &json, endpoint, org_id, ttl);
+    }
+}
+
 /// Complete scan IDs with rich metadata.
 ///
 /// Format: `{scan_id}` with help `{app} | {env} | {status} | {date}`
 ///
 /// Note: clap_complete handles prefix filtering - we return all candidates.
 pub fn complete_scan_ids() -> Vec<CompletionCandidate> {
-    let Some((config, client)) = completion_context() else {
-        return vec![];
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
     };
 
     let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    // Try cache first
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_scan_ids", Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - need full context for API call
+    let Some((_, client)) = completion_context() else {
         return vec![];
     };
 
@@ -113,8 +164,9 @@ pub fn complete_scan_ids() -> Vec<CompletionCandidate> {
         _ => return vec![],
     };
 
-    scans
-        .into_iter()
+    // Build completion data and cache it
+    let completion_data: Vec<(String, String)> = scans
+        .iter()
         .map(|scan_result| {
             let scan = &scan_result.scan;
             let help = format!(
@@ -132,8 +184,25 @@ pub fn complete_scan_ids() -> Vec<CompletionCandidate> {
                 },
                 format_timestamp(&scan.timestamp)
             );
-            CompletionCandidate::new(scan.id.clone()).help(Some(help.into()))
+            (scan.id.clone(), help)
         })
+        .collect();
+
+    // Cache the results
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "scans",
+            Some(org_id),
+            CacheTtl::SCAN_LIST,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
         .collect()
 }
 
@@ -143,11 +212,31 @@ pub fn complete_scan_ids() -> Vec<CompletionCandidate> {
 ///
 /// Note: clap_complete handles prefix filtering - we return all candidates.
 pub fn complete_app_names() -> Vec<CompletionCandidate> {
-    let Some((config, client)) = completion_context() else {
-        return vec![];
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
     };
 
     let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    // Try cache first
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_app_names", Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - need full context for API call
+    let Some((_, client)) = completion_context() else {
         return vec![];
     };
 
@@ -164,7 +253,9 @@ pub fn complete_app_names() -> Vec<CompletionCandidate> {
         _ => return vec![],
     };
 
-    apps.into_iter()
+    // Build completion data and cache it
+    let completion_data: Vec<(String, String)> = apps
+        .into_iter()
         .take(MAX_COMPLETIONS)
         .map(|app| {
             let help = format!(
@@ -172,8 +263,25 @@ pub fn complete_app_names() -> Vec<CompletionCandidate> {
                 app.env.as_deref().unwrap_or("--"),
                 app.status.as_deref().unwrap_or("--")
             );
-            CompletionCandidate::new(app.name).help(Some(help.into()))
+            (app.name, help)
         })
+        .collect();
+
+    // Cache the results
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "apps",
+            Some(org_id),
+            CacheTtl::APPS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
         .collect()
 }
 
@@ -218,13 +326,29 @@ fn extract_scan_id_from_args() -> Option<String> {
 /// Complete plugin IDs for a specific scan.
 ///
 /// Parses command line to extract scan ID, then fetches alerts for that scan.
-/// Format: `{plugin_id}` with help `{name} | {severity} | {count} paths`
+/// Format: `{plugin_id}` with help `{severity} │ {name} │ {count} paths`
+/// Sorted by severity (High → Medium → Low) and cached for 4 hours.
 pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
     // Extract scan ID from command line context
     let Some(scan_id) = extract_scan_id_from_args() else {
         return vec![];
     };
 
+    // Try cache first (keyed by scan_id)
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_plugin_ids", None, &[("scan_id", &scan_id)]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - fetch from API
     let Some((config, client)) = completion_context() else {
         return vec![];
     };
@@ -247,17 +371,10 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
     };
 
     // Sort by severity: High → Medium → Low (most critical first)
-    alerts.sort_by(|a, b| {
-        let severity_rank = |s: &str| match s {
-            "High" => 0,
-            "Medium" => 1,
-            "Low" => 2,
-            _ => 3,
-        };
-        severity_rank(&a.severity).cmp(&severity_rank(&b.severity))
-    });
+    alerts.sort_by(|a, b| severity_rank(&a.severity).cmp(&severity_rank(&b.severity)));
 
-    alerts
+    // Build completion data with aligned columns
+    let completion_data: Vec<(String, String)> = alerts
         .into_iter()
         .take(MAX_COMPLETIONS)
         .map(|alert| {
@@ -266,26 +383,56 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
             } else {
                 "paths"
             };
+            // Format: severity (padded) │ name │ count
             let help = format!(
-                "{} | {} | {} {}",
-                truncate_str(&alert.name, 30),
+                "{:6} │ {} │ {} {}",
                 alert.severity,
+                truncate_str(&alert.name, 32),
                 alert.uri_count,
                 path_word
             );
-            CompletionCandidate::new(alert.plugin_id).help(Some(help.into()))
+            (alert.plugin_id, help)
         })
+        .collect();
+
+    // Cache for 4 hours (scan findings are stable)
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "scan_alerts",
+            None,
+            CacheTtl::COMPLETION_ALERTS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
         .collect()
+}
+
+/// Rank severity for sorting (lower = more severe)
+fn severity_rank(severity: &str) -> u8 {
+    match severity {
+        "High" => 0,
+        "Medium" => 1,
+        "Low" => 2,
+        "Informational" | "Info" => 3,
+        _ => 4,
+    }
 }
 
 /// Complete URI IDs for a specific scan.
 ///
 /// Parses command line to extract scan ID and optionally plugin ID,
 /// then fetches URIs for that scan/plugin.
-/// Format: `{uri_id}` with help `{method} {path} | {plugin_name}`
+/// Format: `{uri_id}` with help `{severity} │ {method} {path} │ {plugin_name}`
 ///
 /// If plugin ID is specified, fetches URIs for that plugin only (fast).
 /// Otherwise, fetches all plugins and their URIs in parallel (slower but complete).
+/// Sorted by severity (High → Medium → Low) and cached for 4 hours.
 pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
     // Extract scan ID from command line context
     let Some(scan_id) = extract_scan_id_from_args() else {
@@ -295,6 +442,29 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
     // Extract plugin ID if present (for scoped URI completion)
     let plugin_id = extract_plugin_id_from_args();
 
+    // Build cache key based on scan_id and optional plugin_id
+    let cache = completion_cache();
+    let cache_key = match &plugin_id {
+        Some(pid) => cache_key(
+            "complete_uri_ids",
+            None,
+            &[("scan_id", &scan_id), ("plugin_id", pid)],
+        ),
+        None => cache_key("complete_uri_ids", None, &[("scan_id", &scan_id)]),
+    };
+
+    // Try cache first
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - fetch from API
     let Some((config, client)) = completion_context() else {
         return vec![];
     };
@@ -323,47 +493,83 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
         };
 
         let alert_name = alert_response.alert.name.clone();
-        return alert_response
+        let severity = alert_response.alert.severity.clone();
+
+        let completion_data: Vec<(String, String)> = alert_response
             .application_scan_alert_uris
             .into_iter()
             .take(MAX_COMPLETIONS)
             .map(|uri| {
                 let help = format!(
-                    "{} {} | {}",
+                    "{:6} │ {:4} {} │ {}",
+                    severity,
                     uri.request_method,
-                    truncate_str(&uri.uri, 40),
-                    &alert_name
+                    truncate_str(&uri.uri, 35),
+                    truncate_str(&alert_name, 25)
                 );
-                CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into()))
+                (uri.alert_uri_id, help)
             })
+            .collect();
+
+        // Cache for 4 hours
+        if let Some(ref c) = cache {
+            set_cached(
+                c,
+                &cache_key,
+                &completion_data,
+                "scan_uri_ids",
+                None,
+                CacheTtl::COMPLETION_ALERTS,
+            );
+        }
+
+        return completion_data
+            .into_iter()
+            .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
             .collect();
     }
 
     // No plugin_id specified - fetch all plugins and their URIs in parallel
-    // This is slower but provides complete URI completion
-    rt.block_on(async { complete_all_uri_ids(&scan_id, client).await })
+    let completion_data =
+        rt.block_on(async { complete_all_uri_ids_cached(&scan_id, client).await });
+
+    // Cache the all-plugins result for 4 hours
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "scan_uri_ids",
+            None,
+            CacheTtl::COMPLETION_ALERTS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+        .collect()
 }
 
 /// Fetch all URI IDs for a scan by querying each plugin in parallel.
 ///
-/// This is used when --plugin-id is not specified. It:
-/// 1. Fetches all alerts (plugins) for the scan
-/// 2. Fetches URIs for each plugin using streaming futures
-/// 3. Returns EARLY as soon as MAX_COMPLETIONS URIs are collected
+/// Returns cacheable `(uri_id, help_text)` tuples sorted by severity.
 ///
-/// Uses FuturesUnordered instead of join_all to process results as they
-/// arrive and exit immediately when we have enough completions.
-async fn complete_all_uri_ids(
+/// This is used when --plugin-id is not specified. It:
+/// 1. Fetches all alerts (plugins) for the scan, sorted by severity
+/// 2. Fetches URIs for each plugin using streaming futures
+/// 3. Returns URIs sorted by their plugin's severity (High → Medium → Low)
+async fn complete_all_uri_ids_cached(
     scan_id: &str,
     client: Arc<StackHawkClient>,
-) -> Vec<CompletionCandidate> {
+) -> Vec<(String, String)> {
     use futures::stream::{FuturesUnordered, StreamExt};
 
     // First, get all alerts (plugins) for this scan
     let alerts_result =
         tokio::time::timeout(COMPLETION_TIMEOUT, client.list_scan_alerts(scan_id, None)).await;
 
-    let alerts = match alerts_result {
+    let mut alerts = match alerts_result {
         Ok(Ok(alerts)) => alerts,
         _ => return vec![],
     };
@@ -372,15 +578,20 @@ async fn complete_all_uri_ids(
         return vec![];
     }
 
-    // Create streaming futures for each plugin (up to 10)
+    // Sort alerts by severity so we fetch high-severity first
+    alerts.sort_by(|a, b| severity_rank(&a.severity).cmp(&severity_rank(&b.severity)));
+
+    // Create streaming futures for each plugin (up to 10), preserving severity order
     let mut futures: FuturesUnordered<_> = alerts
         .iter()
         .take(10)
-        .map(|alert| {
+        .enumerate()
+        .map(|(priority, alert)| {
             let client = client.clone();
             let scan_id = scan_id.to_string();
             let plugin_id = alert.plugin_id.clone();
             let plugin_name = alert.name.clone();
+            let severity = alert.severity.clone();
 
             async move {
                 let result = client
@@ -391,7 +602,7 @@ async fn complete_all_uri_ids(
                     Ok(response) => response
                         .application_scan_alert_uris
                         .into_iter()
-                        .map(|uri| (uri, plugin_name.clone()))
+                        .map(|uri| (uri, plugin_name.clone(), severity.clone(), priority))
                         .collect::<Vec<_>>(),
                     _ => vec![],
                 }
@@ -399,33 +610,33 @@ async fn complete_all_uri_ids(
         })
         .collect();
 
-    let mut candidates = Vec::with_capacity(MAX_COMPLETIONS);
+    let mut all_uris: Vec<(String, String, usize)> = Vec::new();
 
-    // Process results as they complete, exit early when we have enough
-    // Overall timeout prevents hanging if some requests are slow
+    // Process results as they complete
     let stream_with_timeout = async {
         while let Some(uris) = futures.next().await {
-            for (uri, plugin_name) in uris {
+            for (uri, plugin_name, severity, priority) in uris {
                 let help = format!(
-                    "{} {} | {}",
+                    "{:6} │ {:4} {} │ {}",
+                    severity,
                     uri.request_method,
-                    truncate_str(&uri.uri, 40),
+                    truncate_str(&uri.uri, 35),
                     truncate_str(&plugin_name, 25)
                 );
-                candidates.push(CompletionCandidate::new(uri.alert_uri_id).help(Some(help.into())));
-
-                // EARLY EXIT: Return as soon as we have enough
-                if candidates.len() >= MAX_COMPLETIONS {
-                    return candidates;
-                }
+                all_uris.push((uri.alert_uri_id, help, priority));
             }
         }
-        candidates
     };
 
-    tokio::time::timeout(COMPLETION_TIMEOUT * 2, stream_with_timeout)
-        .await
-        .unwrap_or_default()
+    let _ = tokio::time::timeout(COMPLETION_TIMEOUT * 2, stream_with_timeout).await;
+
+    // Sort by severity priority, then take top MAX_COMPLETIONS
+    all_uris.sort_by_key(|(_, _, priority)| *priority);
+    all_uris
+        .into_iter()
+        .take(MAX_COMPLETIONS)
+        .map(|(id, help, _)| (id, help))
+        .collect()
 }
 
 /// Extract plugin ID from command line args during completion.

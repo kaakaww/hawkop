@@ -10,6 +10,7 @@ use completions::{
 
 pub mod app;
 pub mod audit;
+pub mod cache;
 pub mod completions;
 pub mod config;
 pub mod context;
@@ -57,6 +58,10 @@ pub struct Cli {
     /// Enable debug logging
     #[arg(long, global = true, env = "HAWKOP_DEBUG", hide_env = true)]
     pub debug: bool,
+
+    /// Bypass cache, fetch fresh data from API
+    #[arg(long, global = true, env = "HAWKOP_NO_CACHE", hide_env = true)]
+    pub no_cache: bool,
 }
 
 /// Available CLI commands
@@ -114,6 +119,10 @@ pub enum Commands {
     /// View organization audit log
     #[command(subcommand)]
     Audit(AuditCommands),
+
+    /// Manage local response cache
+    #[command(subcommand)]
+    Cache(CacheCommands),
 
     /// Generate shell completions (static)
     #[command(after_help = "\
@@ -289,6 +298,17 @@ pub enum ConfigCommands {
 pub enum SecretCommands {
     /// List user secrets (names only)
     List,
+}
+
+/// Cache management subcommands
+#[derive(Subcommand, Debug)]
+pub enum CacheCommands {
+    /// Show cache statistics
+    Status,
+    /// Clear all cached data
+    Clear,
+    /// Print cache directory path
+    Path,
 }
 
 /// Audit log subcommands

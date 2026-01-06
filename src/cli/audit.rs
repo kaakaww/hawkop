@@ -14,8 +14,9 @@ pub async fn list(
     org_override: Option<&str>,
     config_path: Option<&str>,
     filters: &AuditFilterArgs,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
 
     // Convert CLI args to API filter params
     let api_filters = build_filter_params(filters)?;

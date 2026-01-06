@@ -14,8 +14,9 @@ pub async fn list(
     org_override: Option<&str>,
     config_path: Option<&str>,
     pagination: &PaginationArgs,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     debug!("Fetching teams for org {}", org_id);
