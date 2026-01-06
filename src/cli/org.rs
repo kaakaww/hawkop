@@ -10,8 +10,8 @@ use crate::models::OrgDisplay;
 use crate::output::{Formattable, json};
 
 /// Run the org list command
-pub async fn list(format: OutputFormat, config_path: Option<&str>) -> Result<()> {
-    let ctx = CommandContext::new(format, None, config_path).await?;
+pub async fn list(format: OutputFormat, config_path: Option<&str>, no_cache: bool) -> Result<()> {
+    let ctx = CommandContext::new(format, None, config_path, no_cache).await?;
     let orgs = ctx.client.list_orgs().await?;
 
     let display_orgs: Vec<OrgDisplay> = orgs.into_iter().map(OrgDisplay::from).collect();
@@ -21,12 +21,12 @@ pub async fn list(format: OutputFormat, config_path: Option<&str>) -> Result<()>
 }
 
 /// Run the org set command
-pub async fn set(org_id: String, config_path: Option<&str>) -> Result<()> {
+pub async fn set(org_id: String, config_path: Option<&str>, no_cache: bool) -> Result<()> {
     // We need the resolved path for saving, so get it first
     let resolved_path = Config::resolve_path(config_path)?;
 
     // Use CommandContext for client initialization
-    let mut ctx = CommandContext::new(OutputFormat::Table, None, config_path).await?;
+    let mut ctx = CommandContext::new(OutputFormat::Table, None, config_path, no_cache).await?;
 
     println!("Verifying organization...");
 
@@ -58,8 +58,9 @@ pub async fn get(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     // Get all orgs and find the one matching our configured org_id

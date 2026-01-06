@@ -14,7 +14,7 @@ http-tests = []
 [dependencies]
 # CLI framework
 clap = { version = "4", features = ["derive", "env"] }
-clap_complete = "4"
+clap_complete = { version = "4", features = ["unstable-dynamic"] }
 
 # Async runtime & HTTP
 tokio = { version = "1", features = ["full"] }
@@ -58,6 +58,10 @@ base64 = "0.22"
 # Logging
 log = "0.4"
 env_logger = "0.11"
+
+# Cache storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 assert_cmd = "2"

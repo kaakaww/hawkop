@@ -184,7 +184,7 @@ fn format_duration_seconds(seconds_str: &str) -> String {
 }
 
 /// Default limit for scan list display
-const DEFAULT_SCAN_LIMIT: usize = 25;
+const DEFAULT_SCAN_LIMIT: usize = 10;
 
 /// Requested page size for scans endpoint
 const SCAN_API_PAGE_SIZE: usize = 100;
@@ -202,8 +202,9 @@ pub async fn list(
     config_path: Option<&str>,
     filters: &ScanFilterArgs,
     pagination: &PaginationArgs,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     let display_limit = pagination.limit.unwrap_or(DEFAULT_SCAN_LIMIT);
@@ -468,8 +469,9 @@ pub async fn get(
     plugin_id: Option<&str>,
     uri_id: Option<&str>,
     message: bool,
+    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path).await?;
+    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
     let org_id = ctx.require_org_id()?;
 
     // Validate: can't use filters with specific scan ID
@@ -528,20 +530,41 @@ async fn resolve_latest_scan(
 
     // Resolve app name to app ID if provided
     let resolved_app_id = if let Some(app_name) = app {
-        // Look up application by name
+        // Look up application by name (handle duplicates)
         let apps = ctx.client.list_apps(org_id, None).await?;
-        let matching_app = apps.iter().find(|a| a.name.eq_ignore_ascii_case(app_name));
-        match matching_app {
-            Some(a) => {
-                debug!("Resolved app '{}' to ID '{}'", app_name, a.id);
-                Some(a.id.clone())
-            }
-            None => {
+        let matching_apps: Vec<_> = apps
+            .iter()
+            .filter(|a| a.name.eq_ignore_ascii_case(app_name))
+            .collect();
+
+        match matching_apps.len() {
+            0 => {
                 return Err(crate::error::ApiError::NotFound(format!(
                     "Application '{}' not found. Use 'hawkop app list' to see available applications.",
                     app_name
                 ))
                 .into());
+            }
+            1 => {
+                debug!(
+                    "Resolved app '{}' to ID '{}'",
+                    app_name, matching_apps[0].id
+                );
+                Some(matching_apps[0].id.clone())
+            }
+            _ => {
+                // Multiple apps with same name - require --app-id for disambiguation
+                let mut msg = format!("Multiple applications match '{}':\n", app_name);
+                for app in &matching_apps {
+                    let env_info = app.env.as_deref().unwrap_or("--");
+                    let short_id = &app.id[..8.min(app.id.len())];
+                    msg.push_str(&format!(
+                        "  • {} ({}) - env: {}\n",
+                        app.name, short_id, env_info
+                    ));
+                }
+                msg.push_str("\nUse --app-id <uuid> to specify exactly which one.");
+                return Err(crate::error::ApiError::BadRequest(msg).into());
             }
         }
     } else {
@@ -727,11 +750,34 @@ async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str)
                 println!("\nNo findings.");
             }
 
-            // Tags section
+            // Tags section - deduplicated and filtered
             if !scan.tags.is_empty() {
-                println!("\nTags:");
-                for tag in &scan.tags {
-                    println!("  {}: {}", tag.name, tag.value);
+                // Deduplicate by tag name (keep first occurrence) and filter out:
+                // - Unexpanded env vars like ${RELEASE_TAG}
+                // - Empty values
+                let mut seen = std::collections::HashSet::new();
+                let filtered_tags: Vec<_> = scan
+                    .tags
+                    .iter()
+                    .filter(|tag| {
+                        // Skip duplicates
+                        if !seen.insert(&tag.name) {
+                            return false;
+                        }
+                        // Skip unexpanded env vars (contain ${...})
+                        if tag.value.contains("${") && tag.value.contains('}') {
+                            return false;
+                        }
+                        // Skip empty values
+                        !tag.value.is_empty()
+                    })
+                    .collect();
+
+                if !filtered_tags.is_empty() {
+                    println!("\nTags:");
+                    for tag in filtered_tags {
+                        println!("  {}: {}", tag.name, tag.value);
+                    }
                 }
             }
 
