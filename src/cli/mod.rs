@@ -14,6 +14,7 @@ pub mod cache;
 pub mod completions;
 pub mod config;
 pub mod context;
+pub mod handlers;
 pub mod init;
 pub mod oas;
 pub mod org;
