@@ -7,11 +7,13 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::pagination::PagedResponse;
-use super::{
-    Application, AuditFilterParams, AuditRecord, JwtToken, OASAsset, OrgPolicy, Organization,
-    Repository, ScanConfig, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
+use super::StackHawkApi;
+use super::models::{
+    AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
+    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanMessage, ScanResult,
+    Secret, StackHawkPolicy, Team, User,
 };
+use super::pagination::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::{ApiError, Result};
 
 /// Mock API client for testing.
@@ -193,7 +195,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_apps(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Application>> {
         self.check_error().await?;
 
@@ -206,8 +208,8 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_scans(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
-        _filters: Option<&super::ScanFilterParams>,
+        _pagination: Option<&PaginationParams>,
+        _filters: Option<&ScanFilterParams>,
     ) -> Result<Vec<ScanResult>> {
         self.check_error().await?;
 
@@ -220,7 +222,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_apps_paged(
         &self,
         _org_id: &str,
-        pagination: Option<&super::PaginationParams>,
+        pagination: Option<&PaginationParams>,
     ) -> Result<PagedResponse<Application>> {
         self.check_error().await?;
 
@@ -243,8 +245,8 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_scans_paged(
         &self,
         _org_id: &str,
-        pagination: Option<&super::PaginationParams>,
-        _filters: Option<&super::ScanFilterParams>,
+        pagination: Option<&PaginationParams>,
+        _filters: Option<&ScanFilterParams>,
     ) -> Result<PagedResponse<ScanResult>> {
         self.check_error().await?;
 
@@ -267,7 +269,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_users(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<User>> {
         self.check_error().await?;
 
@@ -280,7 +282,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_teams(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Team>> {
         self.check_error().await?;
 
@@ -302,7 +304,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_org_policies(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<OrgPolicy>> {
         self.check_error().await?;
 
@@ -315,7 +317,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_repos(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Repository>> {
         self.check_error().await?;
 
@@ -328,7 +330,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_oas(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<OASAsset>> {
         self.check_error().await?;
 
@@ -341,7 +343,7 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_scan_configs(
         &self,
         _org_id: &str,
-        _pagination: Option<&super::PaginationParams>,
+        _pagination: Option<&PaginationParams>,
     ) -> Result<Vec<ScanConfig>> {
         self.check_error().await?;
 
@@ -386,8 +388,8 @@ impl StackHawkApi for MockStackHawkClient {
     async fn list_scan_alerts(
         &self,
         _scan_id: &str,
-        _pagination: Option<&super::PaginationParams>,
-    ) -> Result<Vec<super::ApplicationAlert>> {
+        _pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<ApplicationAlert>> {
         self.check_error().await?;
         Ok(vec![])
     }
@@ -396,11 +398,11 @@ impl StackHawkApi for MockStackHawkClient {
         &self,
         _scan_id: &str,
         _plugin_id: &str,
-        _pagination: Option<&super::PaginationParams>,
-    ) -> Result<super::AlertResponse> {
+        _pagination: Option<&PaginationParams>,
+    ) -> Result<AlertResponse> {
         self.check_error().await?;
-        Ok(super::AlertResponse {
-            alert: super::ApplicationAlert {
+        Ok(AlertResponse {
+            alert: ApplicationAlert {
                 plugin_id: "test".to_string(),
                 name: "Test Alert".to_string(),
                 description: "Test description".to_string(),
@@ -425,10 +427,10 @@ impl StackHawkApi for MockStackHawkClient {
         _alert_uri_id: &str,
         _message_id: &str,
         _include_curl: bool,
-    ) -> Result<super::AlertMsgResponse> {
+    ) -> Result<AlertMsgResponse> {
         self.check_error().await?;
-        Ok(super::AlertMsgResponse {
-            scan_message: super::ScanMessage {
+        Ok(AlertMsgResponse {
+            scan_message: ScanMessage {
                 id: "msg-1".to_string(),
                 request_header: Some("GET / HTTP/1.1".to_string()),
                 request_body: None,

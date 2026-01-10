@@ -14,7 +14,8 @@ use std::time::Duration;
 use clap_complete::engine::{ArgValueCandidates, CompletionCandidate};
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
-use crate::client::{JwtToken, PaginationParams, StackHawkApi, StackHawkClient};
+use crate::client::models::JwtToken;
+use crate::client::{PaginationParams, StackHawkApi, StackHawkClient};
 use crate::config::Config;
 
 /// Maximum number of completion candidates to return

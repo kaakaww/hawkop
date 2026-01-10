@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
-use crate::client::{
+use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    JwtToken, OASAsset, OrgPolicy, Organization, PagedResponse, PaginationParams, Repository,
-    ScanConfig, ScanFilterParams, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult, Secret,
+    StackHawkPolicy, Team, User,
 };
+use crate::client::{PagedResponse, PaginationParams, ScanFilterParams, StackHawkApi};
 use crate::error::Result;
 
 /// Cached wrapper for any StackHawkApi implementation.

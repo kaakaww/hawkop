@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tabled::Tabled;
 
-use crate::client::{
+use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, ApplicationAlertUri,
     AuditRecord, OASAsset, OrgPolicy, Organization, PolicyType, Repository, ScanConfig, ScanResult,
     Secret, StackHawkPolicy, Team, User, UserExternal,
@@ -1014,7 +1014,9 @@ impl AlertMessageDetail {
 /// Note: Used by ScanOverview which is currently not in use but kept for
 /// backwards compatibility.
 #[allow(dead_code)]
-fn count_findings_by_severity(stats: &crate::client::AlertStats) -> (u32, u32, u32, u32, u32, u32) {
+fn count_findings_by_severity(
+    stats: &crate::client::models::AlertStats,
+) -> (u32, u32, u32, u32, u32, u32) {
     let mut high_new = 0u32;
     let mut high_triaged = 0u32;
     let mut med_new = 0u32;
@@ -1421,7 +1423,7 @@ mod tests {
 
     #[test]
     fn test_app_display_cloud_app() {
-        use crate::client::CloudScanTarget;
+        use crate::client::models::CloudScanTarget;
 
         let app = Application {
             id: "cloud-app-123".to_string(),
@@ -1446,7 +1448,7 @@ mod tests {
 
     #[test]
     fn test_scan_display_from_scan_result() {
-        use crate::client::{Scan, ScanResult};
+        use crate::client::models::{Scan, ScanResult};
 
         let result = ScanResult {
             scan: Scan {
@@ -1481,7 +1483,7 @@ mod tests {
 
     #[test]
     fn test_scan_display_with_findings() {
-        use crate::client::{AlertStats, AlertStatusStats, Scan, ScanResult};
+        use crate::client::models::{AlertStats, AlertStatusStats, Scan, ScanResult};
         use std::collections::HashMap;
 
         let mut high_severity = HashMap::new();
@@ -1536,7 +1538,7 @@ mod tests {
 
     #[test]
     fn test_team_display_from_team() {
-        use crate::client::Team;
+        use crate::client::models::Team;
 
         let team = Team {
             id: "team-123".to_string(),
@@ -1552,7 +1554,7 @@ mod tests {
 
     #[test]
     fn test_user_display_from_user() {
-        use crate::client::{User, UserExternal};
+        use crate::client::models::{User, UserExternal};
 
         let user = User {
             external: UserExternal {
@@ -1573,7 +1575,7 @@ mod tests {
 
     #[test]
     fn test_user_display_without_full_name() {
-        use crate::client::{User, UserExternal};
+        use crate::client::models::{User, UserExternal};
 
         let user = User {
             external: UserExternal {
@@ -1594,7 +1596,7 @@ mod tests {
 
     #[test]
     fn test_policy_display_from_stackhawk_policy() {
-        use crate::client::{PolicyType, StackHawkPolicy};
+        use crate::client::models::{PolicyType, StackHawkPolicy};
 
         let policy = StackHawkPolicy {
             id: Some("policy-123".to_string()),
@@ -1612,7 +1614,7 @@ mod tests {
 
     #[test]
     fn test_policy_display_from_org_policy() {
-        use crate::client::{OrgPolicy, PolicyType};
+        use crate::client::models::{OrgPolicy, PolicyType};
 
         let policy = OrgPolicy {
             name: "custom-policy".to_string(),
@@ -1630,7 +1632,7 @@ mod tests {
 
     #[test]
     fn test_repo_display_from_repository() {
-        use crate::client::Repository;
+        use crate::client::models::Repository;
 
         let repo = Repository {
             id: Some("repo-123".to_string()),
@@ -1659,7 +1661,7 @@ mod tests {
 
     #[test]
     fn test_repo_display_not_in_attack_surface() {
-        use crate::client::Repository;
+        use crate::client::models::Repository;
 
         let repo = Repository {
             id: Some("repo-456".to_string()),
@@ -1687,7 +1689,7 @@ mod tests {
 
     #[test]
     fn test_oas_display_from_oas_asset() {
-        use crate::client::OASAsset;
+        use crate::client::models::OASAsset;
 
         let oas = OASAsset {
             oas_id: "oas-123".to_string(),
@@ -1705,7 +1707,7 @@ mod tests {
 
     #[test]
     fn test_oas_display_without_repo() {
-        use crate::client::OASAsset;
+        use crate::client::models::OASAsset;
 
         let oas = OASAsset {
             oas_id: "oas-789".to_string(),
@@ -1723,7 +1725,7 @@ mod tests {
 
     #[test]
     fn test_config_display_from_scan_config() {
-        use crate::client::ScanConfig;
+        use crate::client::models::ScanConfig;
 
         let config = ScanConfig {
             name: "prod-config".to_string(),
@@ -1739,7 +1741,7 @@ mod tests {
 
     #[test]
     fn test_config_display_without_description() {
-        use crate::client::ScanConfig;
+        use crate::client::models::ScanConfig;
 
         let config = ScanConfig {
             name: "minimal-config".to_string(),
@@ -1755,7 +1757,7 @@ mod tests {
 
     #[test]
     fn test_secret_display_from_secret() {
-        use crate::client::Secret;
+        use crate::client::models::Secret;
 
         let secret = Secret {
             name: "API_KEY".to_string(),
@@ -1768,7 +1770,7 @@ mod tests {
 
     #[test]
     fn test_audit_display_from_audit_record() {
-        use crate::client::AuditRecord;
+        use crate::client::models::AuditRecord;
 
         let record = AuditRecord {
             id: "audit-123".to_string(),
@@ -1793,7 +1795,7 @@ mod tests {
 
     #[test]
     fn test_audit_display_org_activity() {
-        use crate::client::AuditRecord;
+        use crate::client::models::AuditRecord;
 
         let record = AuditRecord {
             id: "audit-456".to_string(),
@@ -1838,7 +1840,7 @@ mod tests {
 
     #[test]
     fn test_format_findings_no_stats() {
-        use crate::client::{Scan, ScanResult};
+        use crate::client::models::{Scan, ScanResult};
 
         let result = ScanResult {
             scan: Scan {
@@ -1866,7 +1868,7 @@ mod tests {
 
     #[test]
     fn test_format_findings_with_triaged() {
-        use crate::client::{AlertStats, AlertStatusStats, Scan, ScanResult};
+        use crate::client::models::{AlertStats, AlertStatusStats, Scan, ScanResult};
         use std::collections::HashMap;
 
         let mut high_new = HashMap::new();

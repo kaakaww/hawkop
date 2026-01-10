@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use crate::cache::CachedStackHawkClient;
 use crate::cli::OutputFormat;
-use crate::client::{JwtToken, StackHawkApi, StackHawkClient};
+use crate::client::models::JwtToken;
+use crate::client::{StackHawkApi, StackHawkClient};
 use crate::config::Config;
 use crate::error::Result;
 

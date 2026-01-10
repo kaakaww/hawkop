@@ -3,7 +3,8 @@
 use chrono::{Duration, Utc};
 
 use crate::cli::{AuditFilterArgs, CommandContext, OutputFormat, SortDir};
-use crate::client::{AuditFilterParams, StackHawkApi};
+use crate::client::StackHawkApi;
+use crate::client::models::AuditFilterParams;
 use crate::error::Result;
 use crate::models::AuditDisplay;
 use crate::output::Formattable;

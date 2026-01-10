@@ -12,13 +12,14 @@ use tokio::sync::RwLock;
 
 use serde::de::{self, Deserializer};
 
-use super::pagination::PagedResponse;
-use super::rate_limit::{EndpointCategory, RateLimiterSet};
-use super::{
+use super::StackHawkApi;
+use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse, ScanConfig,
-    ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    ScanResult, Secret, StackHawkPolicy, Team, User,
 };
+use super::pagination::PagedResponse;
+use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use crate::error::{ApiError, Result};
 
 /// Deserialize a string to usize (API returns some numbers as strings)

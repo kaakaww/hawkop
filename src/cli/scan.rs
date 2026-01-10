@@ -4,9 +4,8 @@ use chrono::{TimeZone, Utc};
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
-use crate::client::{
-    PaginationParams, ScanFilterParams, ScanResult, StackHawkApi, fetch_remaining_pages,
-};
+use crate::client::models::ScanResult;
+use crate::client::{PaginationParams, ScanFilterParams, StackHawkApi, fetch_remaining_pages};
 use crate::error::Result;
 use crate::models::{
     AlertDetail, AlertFindingDisplay, AlertMessageDetail, PrettyAlertDisplay, ScanDisplay,
