@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::StackHawkApi;
+use super::api::{AuthApi, ListingApi, ScanDetailApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanMessage, ScanResult,
@@ -168,8 +168,12 @@ impl MockStackHawkClient {
     }
 }
 
+// ============================================================================
+// AuthApi Implementation
+// ============================================================================
+
 #[async_trait]
-impl StackHawkApi for MockStackHawkClient {
+impl AuthApi for MockStackHawkClient {
     async fn authenticate(&self, _api_key: &str) -> Result<JwtToken> {
         self.check_error().await?;
 
@@ -182,7 +186,14 @@ impl StackHawkApi for MockStackHawkClient {
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         }))
     }
+}
 
+// ============================================================================
+// ListingApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl ListingApi for MockStackHawkClient {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         self.check_error().await?;
 
@@ -374,7 +385,14 @@ impl StackHawkApi for MockStackHawkClient {
 
         Ok(self.audit_records.lock().await.clone())
     }
+}
 
+// ============================================================================
+// ScanDetailApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl ScanDetailApi for MockStackHawkClient {
     async fn get_scan(&self, _org_id: &str, _scan_id: &str) -> Result<ScanResult> {
         self.check_error().await?;
         // Return first scan or error if none

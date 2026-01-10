@@ -3,7 +3,7 @@
 use colored::Colorize;
 
 use crate::cli::{CommandContext, OutputFormat};
-use crate::client::StackHawkApi;
+use crate::client::ListingApi;
 use crate::config::Config;
 use crate::error::Result;
 use crate::models::OrgDisplay;

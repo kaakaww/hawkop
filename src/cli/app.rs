@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
 use crate::client::models::Application;
-use crate::client::{PaginationParams, StackHawkApi, fetch_remaining_pages};
+use crate::client::{ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
 use crate::models::AppDisplay;
 use crate::output::Formattable;

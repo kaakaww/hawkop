@@ -1,7 +1,7 @@
 //! User secret management commands
 
 use crate::cli::{CommandContext, OutputFormat};
-use crate::client::StackHawkApi;
+use crate::client::ListingApi;
 use crate::error::Result;
 use crate::models::SecretDisplay;
 use crate::output::Formattable;

@@ -2,7 +2,7 @@
 
 use crate::cli::handlers::run_list_command;
 use crate::cli::{OutputFormat, PaginationArgs};
-use crate::client::StackHawkApi;
+use crate::client::ListingApi;
 use crate::client::models::User;
 use crate::error::Result;
 use crate::models::UserDisplay;

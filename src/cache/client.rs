@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
+use crate::client::api::{AuthApi, ListingApi, ScanDetailApi};
 use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult, Secret,
@@ -160,13 +161,24 @@ fn audit_filters_to_params(filters: Option<&AuditFilterParams>) -> Vec<(&'static
     }
 }
 
+// ============================================================================
+// AuthApi Implementation
+// ============================================================================
+
 #[async_trait]
-impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
+impl<C: StackHawkApi + 'static> AuthApi for CachedStackHawkClient<C> {
     /// Authenticate - NEVER cached (security sensitive)
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
         self.inner.authenticate(api_key).await
     }
+}
 
+// ============================================================================
+// ListingApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl<C: StackHawkApi + 'static> ListingApi for CachedStackHawkClient<C> {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         let key = cache_key("list_orgs", None, &[]);
 
@@ -457,7 +469,14 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         self.set_cached(&key, &result, "list_audit", Some(org_id), CacheTtl::AUDIT);
         Ok(result)
     }
+}
 
+// ============================================================================
+// ScanDetailApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl<C: StackHawkApi + 'static> ScanDetailApi for CachedStackHawkClient<C> {
     async fn get_scan(&self, org_id: &str, scan_id: &str) -> Result<ScanResult> {
         let key = cache_key("get_scan", Some(org_id), &[("scan_id", scan_id)]);
 

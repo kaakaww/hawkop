@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use serde::de::{self, Deserializer};
 
-use super::StackHawkApi;
+use super::api::{AuthApi, ListingApi, ScanDetailApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse, ScanConfig,
@@ -315,8 +315,12 @@ impl StackHawkClient {
     }
 }
 
+// ============================================================================
+// AuthApi Implementation
+// ============================================================================
+
 #[async_trait]
-impl StackHawkApi for StackHawkClient {
+impl AuthApi for StackHawkClient {
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
         // Wait if rate limiting is active for the default category (auth endpoint)
         let category = EndpointCategory::Default;
@@ -391,7 +395,14 @@ impl StackHawkApi for StackHawkClient {
             expires_at,
         })
     }
+}
 
+// ============================================================================
+// ListingApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl ListingApi for StackHawkClient {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         #[derive(Deserialize)]
         struct UserOrganization {
@@ -789,11 +800,14 @@ impl StackHawkApi for StackHawkClient {
             .await?;
         Ok(response.audit_records)
     }
+}
 
-    // ========================================================================
-    // Scan Drill-Down Methods
-    // ========================================================================
+// ============================================================================
+// ScanDetailApi Implementation
+// ============================================================================
 
+#[async_trait]
+impl ScanDetailApi for StackHawkClient {
     async fn get_scan(&self, _org_id: &str, scan_id: &str) -> Result<ScanResult> {
         // There's no direct "get single scan" API endpoint, so we use the alerts
         // endpoint which returns scan metadata along with alerts. We just need

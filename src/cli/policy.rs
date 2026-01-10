@@ -3,7 +3,7 @@
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
-use crate::client::StackHawkApi;
+use crate::client::ListingApi;
 use crate::error::Result;
 use crate::models::PolicyDisplay;
 use crate::output::Formattable;

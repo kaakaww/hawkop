@@ -15,7 +15,7 @@ use clap_complete::engine::{ArgValueCandidates, CompletionCandidate};
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
 use crate::client::models::JwtToken;
-use crate::client::{PaginationParams, StackHawkApi, StackHawkClient};
+use crate::client::{AuthApi, ListingApi, PaginationParams, ScanDetailApi, StackHawkClient};
 use crate::config::Config;
 
 /// Maximum number of completion candidates to return
