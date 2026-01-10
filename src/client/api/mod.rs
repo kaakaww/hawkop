@@ -4,8 +4,6 @@
 //! - [`AuthApi`] - Authentication operations
 //! - [`ListingApi`] - Collection listing operations
 //! - [`ScanDetailApi`] - Scan drill-down operations
-//!
-//! The [`StackHawkApi`](super::StackHawkApi) super-trait combines all three.
 
 mod auth;
 mod listing;

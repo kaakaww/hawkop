@@ -1,6 +1,6 @@
 //! Mock StackHawk API client for testing
 //!
-//! Provides a mock implementation of the StackHawkApi trait for unit testing
+//! Provides a mock implementation of the API traits for unit testing
 //! without making real API calls.
 
 use async_trait::async_trait;

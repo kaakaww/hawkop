@@ -6,8 +6,6 @@
 //! - [`AuthApi`] - Authentication operations
 //! - [`ListingApi`] - Collection listing operations
 //! - [`ScanDetailApi`] - Scan drill-down operations
-//!
-//! The [`StackHawkApi`] super-trait combines all three for convenience.
 
 pub mod api;
 #[cfg(test)]
@@ -32,16 +30,3 @@ pub use pagination::{
 #[allow(unused_imports)]
 pub use parallel::fetch_remaining_pages;
 pub use stackhawk::StackHawkClient;
-
-/// StackHawk API client super-trait
-///
-/// This trait combines all API capabilities:
-/// - [`AuthApi`] for authentication
-/// - [`ListingApi`] for listing resources
-/// - [`ScanDetailApi`] for scan drill-down
-///
-/// Any type implementing all three sub-traits automatically implements this trait.
-pub trait StackHawkApi: AuthApi + ListingApi + ScanDetailApi {}
-
-// Blanket implementation: any type implementing all sub-traits gets StackHawkApi
-impl<T: AuthApi + ListingApi + ScanDetailApi> StackHawkApi for T {}

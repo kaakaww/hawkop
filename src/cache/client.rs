@@ -14,20 +14,20 @@ use crate::client::models::{
     JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult, Secret,
     StackHawkPolicy, Team, User,
 };
-use crate::client::{PagedResponse, PaginationParams, ScanFilterParams, StackHawkApi};
+use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
 
-/// Cached wrapper for any StackHawkApi implementation.
+/// Cached wrapper for any client implementing the API traits.
 ///
 /// Provides transparent caching of API responses using SQLite storage.
 /// Cache can be disabled via the `enabled` flag (for `--no-cache`).
 /// The cache is wrapped in a Mutex for thread-safety.
-pub struct CachedStackHawkClient<C: StackHawkApi> {
+pub struct CachedStackHawkClient<C: AuthApi + ListingApi + ScanDetailApi> {
     inner: Arc<C>,
     cache: Option<Mutex<CacheStorage>>,
 }
 
-impl<C: StackHawkApi> CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
     /// Create a new cached client wrapper.
     ///
     /// # Arguments
@@ -166,7 +166,7 @@ fn audit_filters_to_params(filters: Option<&AuditFilterParams>) -> Vec<(&'static
 // ============================================================================
 
 #[async_trait]
-impl<C: StackHawkApi + 'static> AuthApi for CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> AuthApi for CachedStackHawkClient<C> {
     /// Authenticate - NEVER cached (security sensitive)
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
         self.inner.authenticate(api_key).await
@@ -178,7 +178,7 @@ impl<C: StackHawkApi + 'static> AuthApi for CachedStackHawkClient<C> {
 // ============================================================================
 
 #[async_trait]
-impl<C: StackHawkApi + 'static> ListingApi for CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedStackHawkClient<C> {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         let key = cache_key("list_orgs", None, &[]);
 
@@ -476,7 +476,7 @@ impl<C: StackHawkApi + 'static> ListingApi for CachedStackHawkClient<C> {
 // ============================================================================
 
 #[async_trait]
-impl<C: StackHawkApi + 'static> ScanDetailApi for CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for CachedStackHawkClient<C> {
     async fn get_scan(&self, org_id: &str, scan_id: &str) -> Result<ScanResult> {
         let key = cache_key("get_scan", Some(org_id), &[("scan_id", scan_id)]);
 
