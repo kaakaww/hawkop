@@ -59,6 +59,12 @@ pub struct MockStackHawkClient {
     error: Arc<Mutex<Option<ApiError>>>,
     /// Track number of calls for verification
     call_count: Arc<Mutex<CallCounts>>,
+    /// Captured requests for test assertions
+    captured_requests: Arc<Mutex<Vec<CapturedRequest>>>,
+    /// Rate limit after N total calls (simulates 429 response)
+    rate_limit_after: Arc<Mutex<Option<usize>>>,
+    /// Paginated app responses (page index -> apps for that page)
+    app_pages: Arc<Mutex<Option<Vec<Vec<Application>>>>>,
 }
 
 impl Default for MockStackHawkClient {
@@ -79,6 +85,9 @@ impl Default for MockStackHawkClient {
             jwt: Arc::new(Mutex::new(None)),
             error: Arc::new(Mutex::new(None)),
             call_count: Arc::new(Mutex::new(CallCounts::default())),
+            captured_requests: Arc::new(Mutex::new(Vec::new())),
+            rate_limit_after: Arc::new(Mutex::new(None)),
+            app_pages: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -99,6 +108,38 @@ pub struct CallCounts {
     pub list_scan_configs: usize,
     pub list_secrets: usize,
     pub list_audit: usize,
+}
+
+impl CallCounts {
+    /// Get total number of API calls made.
+    pub fn total(&self) -> usize {
+        self.authenticate
+            + self.list_orgs
+            + self.list_apps
+            + self.list_scans
+            + self.list_users
+            + self.list_teams
+            + self.list_stackhawk_policies
+            + self.list_org_policies
+            + self.list_repos
+            + self.list_oas
+            + self.list_scan_configs
+            + self.list_secrets
+            + self.list_audit
+    }
+}
+
+/// A captured API request for test assertions.
+#[derive(Debug, Clone)]
+pub struct CapturedRequest {
+    /// The API method called (e.g., "list_apps", "list_scans")
+    pub method: String,
+    /// Organization ID if provided
+    pub org_id: Option<String>,
+    /// Page number if pagination was requested
+    pub page: Option<usize>,
+    /// Page size if pagination was requested
+    pub page_size: Option<usize>,
 }
 
 impl MockStackHawkClient {
@@ -158,13 +199,67 @@ impl MockStackHawkClient {
         self.call_count.lock().await.clone()
     }
 
+    /// Get all captured requests for test assertions.
+    #[allow(dead_code)]
+    pub async fn captured_requests(&self) -> Vec<CapturedRequest> {
+        self.captured_requests.lock().await.clone()
+    }
+
+    /// Configure rate limiting to trigger after N total API calls.
+    /// After the threshold is reached, all subsequent calls return RateLimited error.
+    #[allow(dead_code)]
+    pub async fn rate_limit_after(self, calls: usize) -> Self {
+        *self.rate_limit_after.lock().await = Some(calls);
+        self
+    }
+
+    /// Configure paginated app responses by page.
+    /// Page 0 returns pages[0], page 1 returns pages[1], etc.
+    #[allow(dead_code)]
+    pub async fn with_app_pages(self, pages: Vec<Vec<Application>>) -> Self {
+        *self.app_pages.lock().await = Some(pages);
+        self
+    }
+
     /// Check if there's a pending error and consume it.
+    /// Also checks rate limit threshold.
     async fn check_error(&self) -> Result<()> {
-        let mut error = self.error.lock().await;
-        if let Some(e) = error.take() {
-            return Err(e.into());
+        // Check one-shot error first
+        {
+            let mut error = self.error.lock().await;
+            if let Some(e) = error.take() {
+                return Err(e.into());
+            }
         }
+
+        // Check rate limit threshold
+        {
+            let rate_limit = self.rate_limit_after.lock().await;
+            if let Some(threshold) = *rate_limit {
+                let counts = self.call_count.lock().await;
+                if counts.total() >= threshold {
+                    return Err(ApiError::RateLimited.into());
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    /// Record a captured request for test assertions.
+    async fn capture_request(
+        &self,
+        method: &str,
+        org_id: Option<&str>,
+        pagination: Option<&PaginationParams>,
+    ) {
+        let mut requests = self.captured_requests.lock().await;
+        requests.push(CapturedRequest {
+            method: method.to_string(),
+            org_id: org_id.map(|s| s.to_string()),
+            page: pagination.and_then(|p| p.page),
+            page_size: pagination.and_then(|p| p.page_size),
+        });
     }
 }
 
@@ -205,13 +300,24 @@ impl ListingApi for MockStackHawkClient {
 
     async fn list_apps(
         &self,
-        _org_id: &str,
-        _pagination: Option<&PaginationParams>,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Application>> {
+        self.capture_request("list_apps", Some(org_id), pagination)
+            .await;
         self.check_error().await?;
 
         let mut counts = self.call_count.lock().await;
         counts.list_apps += 1;
+        drop(counts); // Release lock before acquiring app_pages lock
+
+        // Check for paginated responses first
+        let app_pages = self.app_pages.lock().await;
+        if let Some(ref pages) = *app_pages {
+            let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+            return Ok(pages.get(page_idx).cloned().unwrap_or_default());
+        }
+        drop(app_pages);
 
         Ok(self.apps.lock().await.clone())
     }
@@ -232,24 +338,42 @@ impl ListingApi for MockStackHawkClient {
 
     async fn list_apps_paged(
         &self,
-        _org_id: &str,
+        org_id: &str,
         pagination: Option<&PaginationParams>,
     ) -> Result<PagedResponse<Application>> {
+        self.capture_request("list_apps_paged", Some(org_id), pagination)
+            .await;
         self.check_error().await?;
 
         let mut counts = self.call_count.lock().await;
         counts.list_apps += 1;
+        drop(counts);
+
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        // Check for paginated responses first
+        let app_pages = self.app_pages.lock().await;
+        if let Some(ref pages) = *app_pages {
+            let total_count: usize = pages.iter().map(|p| p.len()).sum();
+            let apps = pages.get(page_idx).cloned().unwrap_or_default();
+            return Ok(PagedResponse::new(
+                apps,
+                Some(total_count),
+                page_size,
+                page_idx,
+            ));
+        }
+        drop(app_pages);
 
         let apps = self.apps.lock().await.clone();
         let total_count = apps.len();
-        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
-        let page_token = pagination.and_then(|p| p.page).unwrap_or(0);
 
         Ok(PagedResponse::new(
             apps,
             Some(total_count),
             page_size,
-            page_token,
+            page_idx,
         ))
     }
 
@@ -565,5 +689,162 @@ mod tests {
 
         let result = mock.authenticate("api-key").await.unwrap();
         assert_eq!(result.token, "custom-token");
+    }
+
+    // ========================================================================
+    // Rate limiting tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_mock_client_rate_limit_after() {
+        let mock = MockStackHawkClient::new().rate_limit_after(3).await;
+
+        // First 3 calls succeed
+        assert!(mock.list_orgs().await.is_ok());
+        assert!(mock.list_orgs().await.is_ok());
+        assert!(mock.list_orgs().await.is_ok());
+
+        // 4th call fails with rate limit error
+        let result = mock.list_orgs().await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Rate limited"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_client_rate_limit_across_methods() {
+        let mock = MockStackHawkClient::new().rate_limit_after(2).await;
+
+        // Mix of different methods counts toward limit
+        assert!(mock.list_orgs().await.is_ok());
+        assert!(mock.list_apps("org", None).await.is_ok());
+
+        // 3rd call (any method) hits limit
+        assert!(mock.list_orgs().await.is_err());
+    }
+
+    // ========================================================================
+    // Captured requests tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_mock_client_captured_requests() {
+        let mock = MockStackHawkClient::new();
+
+        mock.list_apps("org-123", None).await.unwrap();
+
+        let captured = mock.captured_requests().await;
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "list_apps");
+        assert_eq!(captured[0].org_id, Some("org-123".to_string()));
+        assert!(captured[0].page.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_client_captured_requests_with_pagination() {
+        let mock = MockStackHawkClient::new();
+
+        let params = PaginationParams::new().page(2).page_size(50);
+        mock.list_apps("org-456", Some(&params)).await.unwrap();
+
+        let captured = mock.captured_requests().await;
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "list_apps");
+        assert_eq!(captured[0].org_id, Some("org-456".to_string()));
+        assert_eq!(captured[0].page, Some(2));
+        assert_eq!(captured[0].page_size, Some(50));
+    }
+
+    // ========================================================================
+    // Paginated responses tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_mock_client_with_app_pages() {
+        let page0 = vec![Application {
+            id: "app-1".to_string(),
+            name: "App 1".to_string(),
+            env: None,
+            risk_level: None,
+            status: None,
+            organization_id: None,
+            application_type: None,
+            cloud_scan_target: None,
+        }];
+        let page1 = vec![Application {
+            id: "app-2".to_string(),
+            name: "App 2".to_string(),
+            env: None,
+            risk_level: None,
+            status: None,
+            organization_id: None,
+            application_type: None,
+            cloud_scan_target: None,
+        }];
+
+        let mock = MockStackHawkClient::new()
+            .with_app_pages(vec![page0, page1])
+            .await;
+
+        // Page 0 returns app-1
+        let apps_p0 = mock.list_apps("org", None).await.unwrap();
+        assert_eq!(apps_p0.len(), 1);
+        assert_eq!(apps_p0[0].id, "app-1");
+
+        // Page 1 returns app-2
+        let params = PaginationParams::new().page(1);
+        let apps_p1 = mock.list_apps("org", Some(&params)).await.unwrap();
+        assert_eq!(apps_p1.len(), 1);
+        assert_eq!(apps_p1[0].id, "app-2");
+
+        // Page 2 returns empty (out of range)
+        let params = PaginationParams::new().page(2);
+        let apps_p2 = mock.list_apps("org", Some(&params)).await.unwrap();
+        assert!(apps_p2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mock_client_with_app_pages_paged_response() {
+        let page0 = vec![Application {
+            id: "app-1".to_string(),
+            name: "App 1".to_string(),
+            env: None,
+            risk_level: None,
+            status: None,
+            organization_id: None,
+            application_type: None,
+            cloud_scan_target: None,
+        }];
+        let page1 = vec![
+            Application {
+                id: "app-2".to_string(),
+                name: "App 2".to_string(),
+                env: None,
+                risk_level: None,
+                status: None,
+                organization_id: None,
+                application_type: None,
+                cloud_scan_target: None,
+            },
+            Application {
+                id: "app-3".to_string(),
+                name: "App 3".to_string(),
+                env: None,
+                risk_level: None,
+                status: None,
+                organization_id: None,
+                application_type: None,
+                cloud_scan_target: None,
+            },
+        ];
+
+        let mock = MockStackHawkClient::new()
+            .with_app_pages(vec![page0, page1])
+            .await;
+
+        // Paged response includes total count across all pages
+        let response = mock.list_apps_paged("org", None).await.unwrap();
+        assert_eq!(response.total_count, Some(3)); // 1 + 2 apps total
+        assert_eq!(response.items.len(), 1); // page 0 has 1 app
     }
 }
