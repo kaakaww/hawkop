@@ -9,6 +9,8 @@
 
 pub mod api;
 #[cfg(test)]
+pub mod fixtures;
+#[cfg(test)]
 pub mod mock;
 pub mod models;
 pub mod pagination;
