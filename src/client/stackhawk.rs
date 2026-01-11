@@ -1,7 +1,10 @@
 //! StackHawk API client implementation
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Maximum number of retries for rate-limited requests
+const MAX_RATE_LIMIT_RETRIES: u32 = 3;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -182,6 +185,24 @@ impl StackHawkClient {
         path: &str,
         query_params: &[(&str, String)],
     ) -> Result<T> {
+        self.request_with_retry(method, base_url, path, query_params, 0)
+            .await
+    }
+
+    /// Internal request implementation with retry support for rate limiting
+    ///
+    /// Uses exponential backoff with jitter for 429 responses:
+    /// - Base wait from retry-after header (default 1s)
+    /// - Exponential: base * 2^attempt
+    /// - Jitter: 0-1000ms random offset to prevent thundering herd
+    async fn request_with_retry<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: reqwest::Method,
+        base_url: &str,
+        path: &str,
+        query_params: &[(&str, String)],
+        attempt: u32,
+    ) -> Result<T> {
         // Categorize this endpoint for rate limiting
         let category = EndpointCategory::from_request(path, &method);
 
@@ -257,8 +278,14 @@ impl StackHawkClient {
                     debug!("Token refreshed, retrying request");
 
                     // Retry request with same query params - box the recursive call
-                    return Box::pin(self.request_with_query(method, base_url, path, query_params))
-                        .await;
+                    return Box::pin(self.request_with_retry(
+                        method,
+                        base_url,
+                        path,
+                        query_params,
+                        attempt,
+                    ))
+                    .await;
                 }
                 Err(ApiError::Unauthorized.into())
             }
@@ -274,21 +301,53 @@ impl StackHawkClient {
                 // Activate rate limiting for THIS endpoint category only
                 self.rate_limiters.activate(category).await;
 
-                // Wait the retry-after time and retry
-                let retry_after = response
+                // Check if we've exceeded max retries
+                if attempt >= MAX_RATE_LIMIT_RETRIES {
+                    debug!(
+                        "Rate limit retry exhausted after {} attempts for {:?}",
+                        attempt, category
+                    );
+                    return Err(ApiError::RateLimited.into());
+                }
+
+                // Parse retry-after header (default 1 second for backoff calculation)
+                let base_wait_secs = response
                     .headers()
                     .get("retry-after")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(60);
-                debug!(
-                    "Rate limited (429) for {:?}, enabling rate limiter, waiting {}s before retry",
-                    category, retry_after
-                );
-                tokio::time::sleep(Duration::from_secs(retry_after)).await;
+                    .unwrap_or(1);
 
-                // Retry the request
-                Box::pin(self.request_with_query(method, base_url, path, query_params)).await
+                // Exponential backoff: base * 2^attempt
+                let backoff_secs = base_wait_secs.saturating_mul(1 << attempt);
+
+                // Jitter: 0-1000ms using nanosecond timestamp (avoids rand dependency)
+                let jitter_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.subsec_nanos() % 1000)
+                    .unwrap_or(0) as u64;
+
+                let total_wait = Duration::from_secs(backoff_secs) + Duration::from_millis(jitter_ms);
+
+                debug!(
+                    "Rate limited (429) for {:?}, attempt {}/{}, waiting {:?} before retry",
+                    category,
+                    attempt + 1,
+                    MAX_RATE_LIMIT_RETRIES,
+                    total_wait
+                );
+
+                tokio::time::sleep(total_wait).await;
+
+                // Retry with incremented attempt counter
+                Box::pin(self.request_with_retry(
+                    method,
+                    base_url,
+                    path,
+                    query_params,
+                    attempt + 1,
+                ))
+                .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
                 let error_msg = response

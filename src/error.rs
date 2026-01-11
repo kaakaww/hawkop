@@ -51,6 +51,9 @@ pub enum ApiError {
     #[error("Rate limit exceeded. Retry after {0:?}")]
     RateLimit(Duration),
 
+    #[error("Rate limited by API after multiple retries. Try again later.")]
+    RateLimited,
+
     #[error("Bad request: {0}")]
     BadRequest(String),
 
