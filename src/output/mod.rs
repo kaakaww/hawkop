@@ -9,6 +9,7 @@ use tabled::Tabled;
 use crate::cli::OutputFormat;
 use crate::error::Result;
 
+pub mod formatters;
 pub mod json;
 pub mod table;
 

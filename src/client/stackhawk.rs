@@ -25,7 +25,11 @@ use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use crate::error::{ApiError, Result};
 
-/// Deserialize a string to usize (API returns some numbers as strings)
+/// Deserialize a string to usize.
+///
+/// The StackHawk API inconsistently returns some numeric fields as JSON strings
+/// (e.g., `"totalCount": "2666"` instead of `"totalCount": 2666`). This helper
+/// handles both formats transparently using serde's `untagged` enum.
 fn deserialize_string_to_usize<'de, D>(
     deserializer: D,
 ) -> std::result::Result<Option<usize>, D::Error>
@@ -327,7 +331,8 @@ impl StackHawkClient {
                     .map(|d| d.subsec_nanos() % 1000)
                     .unwrap_or(0) as u64;
 
-                let total_wait = Duration::from_secs(backoff_secs) + Duration::from_millis(jitter_ms);
+                let total_wait =
+                    Duration::from_secs(backoff_secs) + Duration::from_millis(jitter_ms);
 
                 debug!(
                     "Rate limited (429) for {:?}, attempt {}/{}, waiting {:?} before retry",
@@ -340,14 +345,8 @@ impl StackHawkClient {
                 tokio::time::sleep(total_wait).await;
 
                 // Retry with incremented attempt counter
-                Box::pin(self.request_with_retry(
-                    method,
-                    base_url,
-                    path,
-                    query_params,
-                    attempt + 1,
-                ))
-                .await
+                Box::pin(self.request_with_retry(method, base_url, path, query_params, attempt + 1))
+                    .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
                 let error_msg = response

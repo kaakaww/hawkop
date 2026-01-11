@@ -1,6 +1,5 @@
 //! Scan management commands
 
-use chrono::{TimeZone, Utc};
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
@@ -13,6 +12,7 @@ use crate::models::{
     AlertDetail, AlertFindingDisplay, AlertMessageDetail, PrettyAlertDisplay, ScanDisplay,
 };
 use crate::output::Formattable;
+use crate::output::formatters::{format_duration_seconds, format_timestamp_local};
 
 // ============================================================================
 // Scan Context for Banner Display
@@ -111,76 +111,6 @@ impl ScanContext {
         lines.push(format!("HawkScan: {}", version_str));
 
         lines.join("\n")
-    }
-}
-
-/// Format Unix timestamp (milliseconds) to local date/time string
-fn format_timestamp_local(timestamp: &str) -> String {
-    let millis: i64 = timestamp.parse().unwrap_or(0);
-    if millis == 0 {
-        return "N/A".to_string();
-    }
-
-    let secs = millis / 1000;
-    match Utc.timestamp_opt(secs, 0) {
-        chrono::LocalResult::Single(dt) => {
-            let local = dt.with_timezone(&chrono::Local);
-            let date_time = local.format("%m/%d/%Y %H:%M").to_string();
-            let tz_abbrev = offset_to_tz_abbrev(local.offset().local_minus_utc());
-            format!("{} {}", date_time, tz_abbrev)
-        }
-        _ => "N/A".to_string(),
-    }
-}
-
-/// Convert UTC offset (seconds) to timezone abbreviation
-fn offset_to_tz_abbrev(offset_secs: i32) -> &'static str {
-    let offset_hours = offset_secs / 3600;
-    match offset_hours {
-        -12 => "IDLW",
-        -11 => "SST",
-        -10 => "HST",
-        -9 => "AKST",
-        -8 => "PST",
-        -7 => "MST",
-        -6 => "CST",
-        -5 => "EST",
-        -4 => "AST",
-        -3 => "ART",
-        0 => "UTC",
-        1 => "CET",
-        2 => "EET",
-        3 => "MSK",
-        5 | 6 => "IST",
-        8 => "CST", // China Standard Time
-        9 => "JST",
-        10 => "AEST",
-        12 => "NZST",
-        _ => {
-            // Fall back to offset format for uncommon zones
-            // This is a static str leak but only happens for rare offsets
-            Box::leak(format!("UTC{:+}", offset_hours).into_boxed_str())
-        }
-    }
-}
-
-/// Format duration in seconds to human-readable string
-fn format_duration_seconds(seconds_str: &str) -> String {
-    let secs: u64 = seconds_str.parse().unwrap_or(0);
-    if secs == 0 {
-        return "N/A".to_string();
-    }
-
-    let hours = secs / 3600;
-    let mins = (secs % 3600) / 60;
-    let secs = secs % 60;
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, mins, secs)
-    } else if mins > 0 {
-        format!("{}m {}s", mins, secs)
-    } else {
-        format!("{}s", secs)
     }
 }
 
@@ -343,9 +273,15 @@ pub async fn list(
 }
 
 /// Check if a scan matches the status filter.
+///
+/// The API returns technical status names (STARTED, COMPLETED, ERROR) but users
+/// expect human-friendly terms (running, complete, failed). This maps API values
+/// to display values before matching, allowing `--status running` to find scans
+/// with API status "STARTED".
 fn matches_status(scan: &ScanResult, status_filter: &str) -> bool {
     let status_lower = status_filter.to_lowercase();
     let status_upper = scan.scan.status.to_uppercase();
+    // Map API status to user-friendly display status
     let scan_status = match status_upper.as_str() {
         "STARTED" => "running",
         "COMPLETED" => "complete",
@@ -1218,35 +1154,6 @@ mod tests {
             }],
         });
         scan
-    }
-
-    // ========================================================================
-    // format_duration_seconds tests
-    // ========================================================================
-
-    #[test]
-    fn test_format_duration_seconds_zero() {
-        assert_eq!(format_duration_seconds("0"), "N/A");
-    }
-
-    #[test]
-    fn test_format_duration_seconds_only_seconds() {
-        assert_eq!(format_duration_seconds("45"), "45s");
-    }
-
-    #[test]
-    fn test_format_duration_seconds_minutes_and_seconds() {
-        assert_eq!(format_duration_seconds("125"), "2m 5s");
-    }
-
-    #[test]
-    fn test_format_duration_seconds_hours() {
-        assert_eq!(format_duration_seconds("3665"), "1h 1m 5s");
-    }
-
-    #[test]
-    fn test_format_duration_seconds_invalid() {
-        assert_eq!(format_duration_seconds("not-a-number"), "N/A");
     }
 
     // ========================================================================
