@@ -4,7 +4,7 @@ This document covers the technical architecture, development history, and future
 
 ## Project Overview
 
-HawkOp is a professional-grade Rust CLI companion for the StackHawk DAST platform. It provides developers and security teams with terminal access to StackHawk's dynamic application security testing capabilities.
+HawkOp is a professional-grade Rust CLI companion for the StackHawk platform. It provides developers and security teams with terminal access to StackHawk's dynamic application security testing capabilities.
 
 The CLI follows GitHub's `gh` CLI design patterns with a `hawkop <command> <subcommand>` structure.
 

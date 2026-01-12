@@ -3,7 +3,7 @@ name = "hawkop"
 version = "0.3.0"
 edition = "2024"
 authors = ["StackHawk Team"]
-description = "Professional CLI companion for the StackHawk DAST platform"
+description = "CLI companion for the StackHawk Platform"
 license = "MIT"
 repository = "https://github.com/kaakaww/hawkop"
 

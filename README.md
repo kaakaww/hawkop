@@ -1,6 +1,6 @@
 # HawkOp
 
-**A CLI companion for the StackHawk DAST platform**
+**A CLI companion for the StackHawk AppSec Intelligence Platform**
 
 HawkOp brings StackHawk's application security intelligence to your terminal. Explore scan results and integrate with your workflows directly from the command line.
 
