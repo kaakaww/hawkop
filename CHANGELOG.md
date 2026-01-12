@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dynamic shell completions** for scan IDs, app names, plugin IDs, and URI IDs
+  - Completions query StackHawk API in real-time when you press TAB
+  - Rich metadata shown in completion hints (app, env, status, date)
+  - Context-aware: plugin completions show severity, URI completions show method/path
+  - Supports bash, zsh, and fish via `source <(COMPLETE=<shell> hawkop)`
+- **SQLite caching** for API responses and completions
+  - Configurable TTLs per endpoint type
+  - Automatic cache invalidation and schema versioning
+  - Blob storage for large responses (>10KB)
+- **Exponential backoff** for rate limit retries with jitter
+- **`hawkop scan get`** command for detailed scan exploration
+  - Rich pretty format with color-coded severity
+  - User and policy name lookup
+  - `--plugin-id` and `--uri-id` filters for drill-down
+- Test fixture builders for easy test data creation
+- Enhanced `MockStackHawkClient` with configurable simulation capabilities
+- Integration tests for CLI error scenarios
+
+### Changed
+
+- **Major codebase refactoring** for improved maintainability:
+  - Split `client/mod.rs` into `client/api/` and `client/models/` sub-modules
+  - Split `models/display.rs` (1900 lines) into domain-specific modules
+  - Extracted CLI args into `cli/args/` module (common, pagination, filters)
+  - Added generic list command handler to reduce duplication
+- Moved SQLite cache I/O to blocking thread pool for better async performance
+- Reduced default scan list limit from 25 to 10 for faster response
+- Restructured documentation (README, CONTRIBUTING, PLANNING) for clarity
+
+### Fixed
+
+- Deduplicate tags in scan output
+- Filter unexpanded environment variables from scan metadata
+
 ## [0.3.0] - 2025-12-28
 
 ### Added
