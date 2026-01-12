@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-HawkOp is a professional CLI companion for the StackHawk DAST platform, built in Rust. It provides developers and security teams with terminal access to StackHawk's application security intelligence.
+HawkOp is a professional CLI companion for the StackHawk platform, built in Rust. It provides developers and security teams with terminal access to StackHawk's application security intelligence.
 
 ## Project Structure
 

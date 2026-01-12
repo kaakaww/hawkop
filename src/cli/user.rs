@@ -1,12 +1,11 @@
 //! User management commands
 
-use log::debug;
-
-use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
-use crate::client::StackHawkApi;
+use crate::cli::handlers::run_list_command;
+use crate::cli::{OutputFormat, PaginationArgs};
+use crate::client::ListingApi;
+use crate::client::models::User;
 use crate::error::Result;
 use crate::models::UserDisplay;
-use crate::output::Formattable;
 
 /// Run the user list command
 pub async fn list(
@@ -16,26 +15,14 @@ pub async fn list(
     pagination: &PaginationArgs,
     no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
-    let org_id = ctx.require_org_id()?;
-
-    debug!("Fetching users for org {}", org_id);
-
-    let params = pagination.to_params();
-    let users = ctx.client.list_users(org_id, Some(&params)).await?;
-
-    debug!("Fetched {} users", users.len());
-
-    // Apply limit if specified
-    let limited_users = if let Some(limit) = pagination.limit {
-        users.into_iter().take(limit).collect()
-    } else {
-        users
-    };
-
-    let display_users: Vec<UserDisplay> =
-        limited_users.into_iter().map(UserDisplay::from).collect();
-    display_users.print(ctx.format)?;
-
-    Ok(())
+    run_list_command::<User, UserDisplay, _, _>(
+        format,
+        org_override,
+        config_path,
+        pagination,
+        no_cache,
+        "users",
+        |client, org_id, params| async move { client.list_users(&org_id, Some(&params)).await },
+    )
+    .await
 }

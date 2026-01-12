@@ -1,6 +1,7 @@
 //! Cached wrapper for StackHawk API client
 //!
 //! Provides transparent caching for all API responses using SQLite storage.
+//! Cache operations run on a blocking thread pool to avoid blocking the async executor.
 
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
@@ -8,24 +9,27 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
-use crate::client::{
+use crate::client::api::{AuthApi, ListingApi, ScanDetailApi};
+use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    JwtToken, OASAsset, OrgPolicy, Organization, PagedResponse, PaginationParams, Repository,
-    ScanConfig, ScanFilterParams, ScanResult, Secret, StackHawkApi, StackHawkPolicy, Team, User,
+    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult, Secret,
+    StackHawkPolicy, Team, User,
 };
+use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
 
-/// Cached wrapper for any StackHawkApi implementation.
+/// Cached wrapper for any client implementing the API traits.
 ///
 /// Provides transparent caching of API responses using SQLite storage.
 /// Cache can be disabled via the `enabled` flag (for `--no-cache`).
-/// The cache is wrapped in a Mutex for thread-safety.
-pub struct CachedStackHawkClient<C: StackHawkApi> {
+/// Cache operations run on Tokio's blocking thread pool to avoid blocking
+/// the async executor during SQLite I/O.
+pub struct CachedStackHawkClient<C: AuthApi + ListingApi + ScanDetailApi> {
     inner: Arc<C>,
-    cache: Option<Mutex<CacheStorage>>,
+    cache: Option<Arc<Mutex<CacheStorage>>>,
 }
 
-impl<C: StackHawkApi> CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
     /// Create a new cached client wrapper.
     ///
     /// # Arguments
@@ -33,7 +37,7 @@ impl<C: StackHawkApi> CachedStackHawkClient<C> {
     /// * `enabled` - Whether caching is enabled (false for --no-cache)
     pub fn new(inner: C, enabled: bool) -> Self {
         let cache = if enabled {
-            CacheStorage::open().ok().map(Mutex::new)
+            CacheStorage::open().ok().map(|c| Arc::new(Mutex::new(c)))
         } else {
             None
         };
@@ -49,19 +53,25 @@ impl<C: StackHawkApi> CachedStackHawkClient<C> {
         &self.inner
     }
 
-    /// Try to get cached data
-    fn get_cached<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        let cache = self.cache.as_ref()?;
-        let guard = cache.lock().ok()?;
-        guard
-            .get(key)
-            .ok()
-            .flatten()
-            .and_then(|data| serde_json::from_slice(&data).ok())
+    /// Try to get cached data (runs on blocking thread pool)
+    async fn get_cached<T: DeserializeOwned + Send + 'static>(&self, key: &str) -> Option<T> {
+        let cache = self.cache.clone()?;
+        let key = key.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let guard = cache.lock().ok()?;
+            guard
+                .get(&key)
+                .ok()
+                .flatten()
+                .and_then(|data| serde_json::from_slice(&data).ok())
+        })
+        .await
+        .ok()?
     }
 
-    /// Store data in cache
-    fn set_cached<T: Serialize>(
+    /// Store data in cache (runs on blocking thread pool, fire-and-forget)
+    fn set_cached<T: Serialize + Send + 'static>(
         &self,
         key: &str,
         data: &T,
@@ -69,11 +79,24 @@ impl<C: StackHawkApi> CachedStackHawkClient<C> {
         org_id: Option<&str>,
         ttl: Duration,
     ) {
-        if let Some(ref cache) = self.cache
-            && let Ok(guard) = cache.lock()
-            && let Ok(json) = serde_json::to_vec(data)
-        {
-            let _ = guard.put(key, &json, endpoint, org_id, ttl);
+        // Serialize before spawning to avoid Send requirement on T reference
+        let json = match serde_json::to_vec(data) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+
+        if let Some(ref cache) = self.cache {
+            let cache = cache.clone();
+            let key = key.to_string();
+            let endpoint = endpoint.to_string();
+            let org_id = org_id.map(|s| s.to_string());
+
+            // Fire-and-forget: don't block waiting for cache write
+            tokio::task::spawn_blocking(move || {
+                if let Ok(guard) = cache.lock() {
+                    let _ = guard.put(&key, &json, &endpoint, org_id.as_deref(), ttl);
+                }
+            });
         }
     }
 }
@@ -159,17 +182,28 @@ fn audit_filters_to_params(filters: Option<&AuditFilterParams>) -> Vec<(&'static
     }
 }
 
+// ============================================================================
+// AuthApi Implementation
+// ============================================================================
+
 #[async_trait]
-impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> AuthApi for CachedStackHawkClient<C> {
     /// Authenticate - NEVER cached (security sensitive)
     async fn authenticate(&self, api_key: &str) -> Result<JwtToken> {
         self.inner.authenticate(api_key).await
     }
+}
 
+// ============================================================================
+// ListingApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedStackHawkClient<C> {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
         let key = cache_key("list_orgs", None, &[]);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_orgs");
             return Ok(cached);
         }
@@ -188,7 +222,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_apps", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_apps");
             return Ok(cached);
         }
@@ -207,7 +241,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_apps_paged", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_apps_paged");
             return Ok(cached);
         }
@@ -234,7 +268,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_scans", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scans");
             return Ok(cached);
         }
@@ -261,7 +295,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_scans_paged", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scans_paged");
             return Ok(cached);
         }
@@ -289,7 +323,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_users", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_users");
             return Ok(cached);
         }
@@ -308,7 +342,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_teams", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_teams");
             return Ok(cached);
         }
@@ -321,7 +355,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
         let key = cache_key("list_stackhawk_policies", None, &[]);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_stackhawk_policies");
             return Ok(cached);
         }
@@ -346,7 +380,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_org_policies", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_org_policies");
             return Ok(cached);
         }
@@ -371,7 +405,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_repos", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_repos");
             return Ok(cached);
         }
@@ -390,7 +424,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_oas", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_oas");
             return Ok(cached);
         }
@@ -409,7 +443,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_scan_configs", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scan_configs");
             return Ok(cached);
         }
@@ -428,7 +462,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
         let key = cache_key("list_secrets", None, &[]);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_secrets");
             return Ok(cached);
         }
@@ -447,7 +481,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_audit", Some(org_id), &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_audit");
             return Ok(cached);
         }
@@ -456,11 +490,18 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         self.set_cached(&key, &result, "list_audit", Some(org_id), CacheTtl::AUDIT);
         Ok(result)
     }
+}
 
+// ============================================================================
+// ScanDetailApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for CachedStackHawkClient<C> {
     async fn get_scan(&self, org_id: &str, scan_id: &str) -> Result<ScanResult> {
         let key = cache_key("get_scan", Some(org_id), &[("scan_id", scan_id)]);
 
-        if let Some(cached) = self.get_cached::<ScanResult>(&key) {
+        if let Some(cached) = self.get_cached::<ScanResult>(&key).await {
             log::debug!("Cache hit: get_scan");
             return Ok(cached);
         }
@@ -488,7 +529,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("list_scan_alerts", None, &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scan_alerts");
             return Ok(cached);
         }
@@ -510,7 +551,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let key = cache_key("get_alert_with_paths", None, &params_ref);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: get_alert_with_paths");
             return Ok(cached);
         }
@@ -544,7 +585,7 @@ impl<C: StackHawkApi + 'static> StackHawkApi for CachedStackHawkClient<C> {
         ];
         let key = cache_key("get_alert_message", None, &params);
 
-        if let Some(cached) = self.get_cached(&key) {
+        if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: get_alert_message");
             return Ok(cached);
         }
@@ -576,9 +617,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mock = MockStackHawkClient::new();
 
-        // Create cache in temp dir (wrapped in Mutex for thread safety)
+        // Create cache in temp dir (wrapped in Arc<Mutex> for thread safety + spawn_blocking)
         let cache = if enabled {
-            CacheStorage::open_at(temp_dir.path()).ok().map(Mutex::new)
+            CacheStorage::open_at(temp_dir.path())
+                .ok()
+                .map(|c| Arc::new(Mutex::new(c)))
         } else {
             None
         };

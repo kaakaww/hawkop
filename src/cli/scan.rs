@@ -1,17 +1,18 @@
 //! Scan management commands
 
-use chrono::{TimeZone, Utc};
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
+use crate::client::models::ScanResult;
 use crate::client::{
-    PaginationParams, ScanFilterParams, ScanResult, StackHawkApi, fetch_remaining_pages,
+    ListingApi, PaginationParams, ScanDetailApi, ScanFilterParams, fetch_remaining_pages,
 };
 use crate::error::Result;
 use crate::models::{
     AlertDetail, AlertFindingDisplay, AlertMessageDetail, PrettyAlertDisplay, ScanDisplay,
 };
 use crate::output::Formattable;
+use crate::output::formatters::{format_duration_seconds, format_timestamp_local};
 
 // ============================================================================
 // Scan Context for Banner Display
@@ -110,76 +111,6 @@ impl ScanContext {
         lines.push(format!("HawkScan: {}", version_str));
 
         lines.join("\n")
-    }
-}
-
-/// Format Unix timestamp (milliseconds) to local date/time string
-fn format_timestamp_local(timestamp: &str) -> String {
-    let millis: i64 = timestamp.parse().unwrap_or(0);
-    if millis == 0 {
-        return "N/A".to_string();
-    }
-
-    let secs = millis / 1000;
-    match Utc.timestamp_opt(secs, 0) {
-        chrono::LocalResult::Single(dt) => {
-            let local = dt.with_timezone(&chrono::Local);
-            let date_time = local.format("%m/%d/%Y %H:%M").to_string();
-            let tz_abbrev = offset_to_tz_abbrev(local.offset().local_minus_utc());
-            format!("{} {}", date_time, tz_abbrev)
-        }
-        _ => "N/A".to_string(),
-    }
-}
-
-/// Convert UTC offset (seconds) to timezone abbreviation
-fn offset_to_tz_abbrev(offset_secs: i32) -> &'static str {
-    let offset_hours = offset_secs / 3600;
-    match offset_hours {
-        -12 => "IDLW",
-        -11 => "SST",
-        -10 => "HST",
-        -9 => "AKST",
-        -8 => "PST",
-        -7 => "MST",
-        -6 => "CST",
-        -5 => "EST",
-        -4 => "AST",
-        -3 => "ART",
-        0 => "UTC",
-        1 => "CET",
-        2 => "EET",
-        3 => "MSK",
-        5 | 6 => "IST",
-        8 => "CST", // China Standard Time
-        9 => "JST",
-        10 => "AEST",
-        12 => "NZST",
-        _ => {
-            // Fall back to offset format for uncommon zones
-            // This is a static str leak but only happens for rare offsets
-            Box::leak(format!("UTC{:+}", offset_hours).into_boxed_str())
-        }
-    }
-}
-
-/// Format duration in seconds to human-readable string
-fn format_duration_seconds(seconds_str: &str) -> String {
-    let secs: u64 = seconds_str.parse().unwrap_or(0);
-    if secs == 0 {
-        return "N/A".to_string();
-    }
-
-    let hours = secs / 3600;
-    let mins = (secs % 3600) / 60;
-    let secs = secs % 60;
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, mins, secs)
-    } else if mins > 0 {
-        format!("{}m {}s", mins, secs)
-    } else {
-        format!("{}s", secs)
     }
 }
 
@@ -342,9 +273,15 @@ pub async fn list(
 }
 
 /// Check if a scan matches the status filter.
+///
+/// The API returns technical status names (STARTED, COMPLETED, ERROR) but users
+/// expect human-friendly terms (running, complete, failed). This maps API values
+/// to display values before matching, allowing `--status running` to find scans
+/// with API status "STARTED".
 fn matches_status(scan: &ScanResult, status_filter: &str) -> bool {
     let status_lower = status_filter.to_lowercase();
     let status_upper = scan.scan.status.to_uppercase();
+    // Map API status to user-friendly display status
     let scan_status = match status_upper.as_str() {
         "STARTED" => "running",
         "COMPLETED" => "complete",
@@ -1151,5 +1088,397 @@ fn format_scan_status(status: &str) -> String {
         "ERROR" => "Failed".to_string(),
         "UNKNOWN" => "Unknown".to_string(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::models::{AlertStats, AlertStatusStats, Scan};
+    use std::collections::HashMap;
+
+    // ========================================================================
+    // Test Fixtures
+    // ========================================================================
+
+    /// Create a minimal ScanResult for testing
+    fn make_scan(id: &str, app: &str, env: &str, status: &str) -> ScanResult {
+        ScanResult {
+            scan: Scan {
+                id: id.to_string(),
+                application_id: format!("app-{}", id),
+                application_name: app.to_string(),
+                env: env.to_string(),
+                status: status.to_string(),
+                timestamp: "1703721600000".to_string(), // 2023-12-28
+                version: "5.0.0".to_string(),
+                external_user_id: None,
+            },
+            scan_duration: Some("120".to_string()),
+            url_count: Some(50),
+            alert_stats: None,
+            severity_stats: None,
+            app_host: Some("https://example.com".to_string()),
+            policy_name: None,
+            tags: vec![],
+            metadata: None,
+        }
+    }
+
+    /// Create a ScanResult with alert stats for testing findings
+    fn make_scan_with_findings(
+        id: &str,
+        high_new: u32,
+        medium_new: u32,
+        low_new: u32,
+    ) -> ScanResult {
+        let mut severity_stats = HashMap::new();
+        if high_new > 0 {
+            severity_stats.insert("High".to_string(), high_new);
+        }
+        if medium_new > 0 {
+            severity_stats.insert("Medium".to_string(), medium_new);
+        }
+        if low_new > 0 {
+            severity_stats.insert("Low".to_string(), low_new);
+        }
+
+        let mut scan = make_scan(id, "TestApp", "prod", "COMPLETED");
+        scan.alert_stats = Some(AlertStats {
+            total_alerts: high_new + medium_new + low_new,
+            unique_alerts: high_new + medium_new + low_new,
+            alert_status_stats: vec![AlertStatusStats {
+                alert_status: "UNKNOWN".to_string(),
+                total_count: high_new + medium_new + low_new,
+                severity_stats,
+            }],
+        });
+        scan
+    }
+
+    // ========================================================================
+    // format_scan_status tests
+    // ========================================================================
+
+    #[test]
+    fn test_format_scan_status_started() {
+        assert_eq!(format_scan_status("STARTED"), "Running");
+        assert_eq!(format_scan_status("started"), "Running");
+    }
+
+    #[test]
+    fn test_format_scan_status_completed() {
+        assert_eq!(format_scan_status("COMPLETED"), "Complete");
+        assert_eq!(format_scan_status("completed"), "Complete");
+    }
+
+    #[test]
+    fn test_format_scan_status_error() {
+        assert_eq!(format_scan_status("ERROR"), "Failed");
+        assert_eq!(format_scan_status("error"), "Failed");
+    }
+
+    #[test]
+    fn test_format_scan_status_unknown() {
+        assert_eq!(format_scan_status("UNKNOWN"), "Unknown");
+    }
+
+    #[test]
+    fn test_format_scan_status_passthrough() {
+        assert_eq!(format_scan_status("CUSTOM_STATUS"), "CUSTOM_STATUS");
+    }
+
+    // ========================================================================
+    // matches_status tests
+    // ========================================================================
+
+    #[test]
+    fn test_matches_status_running() {
+        let scan = make_scan("1", "App", "prod", "STARTED");
+        assert!(matches_status(&scan, "running"));
+        assert!(matches_status(&scan, "Running"));
+        assert!(matches_status(&scan, "RUNNING"));
+        assert!(!matches_status(&scan, "complete"));
+    }
+
+    #[test]
+    fn test_matches_status_complete() {
+        let scan = make_scan("1", "App", "prod", "COMPLETED");
+        assert!(matches_status(&scan, "complete"));
+        assert!(matches_status(&scan, "Complete"));
+        assert!(!matches_status(&scan, "running"));
+    }
+
+    #[test]
+    fn test_matches_status_failed() {
+        let scan = make_scan("1", "App", "prod", "ERROR");
+        assert!(matches_status(&scan, "failed"));
+        assert!(matches_status(&scan, "Failed"));
+        assert!(!matches_status(&scan, "complete"));
+    }
+
+    #[test]
+    fn test_matches_status_partial_match() {
+        let scan = make_scan("1", "App", "prod", "COMPLETED");
+        // "comp" should match "complete"
+        assert!(matches_status(&scan, "comp"));
+    }
+
+    // ========================================================================
+    // get_new_findings tests
+    // ========================================================================
+
+    #[test]
+    fn test_get_new_findings_no_stats() {
+        let scan = make_scan("1", "App", "prod", "COMPLETED");
+        assert_eq!(get_new_findings(&scan), (0, 0, 0));
+    }
+
+    #[test]
+    fn test_get_new_findings_high_only() {
+        let scan = make_scan_with_findings("1", 5, 0, 0);
+        assert_eq!(get_new_findings(&scan), (5, 0, 0));
+    }
+
+    #[test]
+    fn test_get_new_findings_all_severities() {
+        let scan = make_scan_with_findings("1", 3, 5, 2);
+        assert_eq!(get_new_findings(&scan), (3, 5, 2));
+    }
+
+    #[test]
+    fn test_get_new_findings_empty_unknown() {
+        let mut scan = make_scan("1", "App", "prod", "COMPLETED");
+        // Create stats without UNKNOWN status
+        scan.alert_stats = Some(AlertStats {
+            total_alerts: 0u32,
+            unique_alerts: 0u32,
+            alert_status_stats: vec![AlertStatusStats {
+                alert_status: "PROMOTED".to_string(),
+                total_count: 5,
+                severity_stats: HashMap::new(),
+            }],
+        });
+        assert_eq!(get_new_findings(&scan), (0, 0, 0));
+    }
+
+    // ========================================================================
+    // apply_status_filter tests
+    // ========================================================================
+
+    #[test]
+    fn test_apply_status_filter_no_filter() {
+        let scans = vec![
+            make_scan("1", "App1", "prod", "COMPLETED"),
+            make_scan("2", "App2", "prod", "STARTED"),
+        ];
+        let filters = ScanFilterArgs {
+            app: vec![],
+            env: vec![],
+            status: None,
+        };
+
+        let result = apply_status_filter(scans.clone(), &filters);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_apply_status_filter_running() {
+        let scans = vec![
+            make_scan("1", "App1", "prod", "COMPLETED"),
+            make_scan("2", "App2", "prod", "STARTED"),
+            make_scan("3", "App3", "prod", "COMPLETED"),
+        ];
+        let filters = ScanFilterArgs {
+            app: vec![],
+            env: vec![],
+            status: Some("running".to_string()),
+        };
+
+        let result = apply_status_filter(scans, &filters);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].scan.id, "2");
+    }
+
+    #[test]
+    fn test_apply_status_filter_complete() {
+        let scans = vec![
+            make_scan("1", "App1", "prod", "COMPLETED"),
+            make_scan("2", "App2", "prod", "STARTED"),
+            make_scan("3", "App3", "prod", "COMPLETED"),
+        ];
+        let filters = ScanFilterArgs {
+            app: vec![],
+            env: vec![],
+            status: Some("complete".to_string()),
+        };
+
+        let result = apply_status_filter(scans, &filters);
+        assert_eq!(result.len(), 2);
+    }
+
+    // ========================================================================
+    // apply_sort tests
+    // ========================================================================
+
+    #[test]
+    fn test_apply_sort_no_sort() {
+        let scans = vec![
+            make_scan("1", "Zebra", "prod", "COMPLETED"),
+            make_scan("2", "Apple", "prod", "COMPLETED"),
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: None,
+            sort_dir: None,
+        };
+
+        let result = apply_sort(scans.clone(), &pagination);
+        // Should preserve original order
+        assert_eq!(result[0].scan.id, "1");
+        assert_eq!(result[1].scan.id, "2");
+    }
+
+    #[test]
+    fn test_apply_sort_by_app_asc() {
+        let scans = vec![
+            make_scan("1", "Zebra", "prod", "COMPLETED"),
+            make_scan("2", "Apple", "prod", "COMPLETED"),
+            make_scan("3", "Mango", "prod", "COMPLETED"),
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("app".to_string()),
+            sort_dir: Some(SortDir::Asc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        assert_eq!(result[0].scan.application_name, "Apple");
+        assert_eq!(result[1].scan.application_name, "Mango");
+        assert_eq!(result[2].scan.application_name, "Zebra");
+    }
+
+    #[test]
+    fn test_apply_sort_by_app_desc() {
+        let scans = vec![
+            make_scan("1", "Apple", "prod", "COMPLETED"),
+            make_scan("2", "Zebra", "prod", "COMPLETED"),
+            make_scan("3", "Mango", "prod", "COMPLETED"),
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("app".to_string()),
+            sort_dir: Some(SortDir::Desc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        assert_eq!(result[0].scan.application_name, "Zebra");
+        assert_eq!(result[1].scan.application_name, "Mango");
+        assert_eq!(result[2].scan.application_name, "Apple");
+    }
+
+    #[test]
+    fn test_apply_sort_by_env() {
+        let scans = vec![
+            make_scan("1", "App", "prod", "COMPLETED"),
+            make_scan("2", "App", "dev", "COMPLETED"),
+            make_scan("3", "App", "staging", "COMPLETED"),
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("env".to_string()),
+            sort_dir: Some(SortDir::Asc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        assert_eq!(result[0].scan.env, "dev");
+        assert_eq!(result[1].scan.env, "prod");
+        assert_eq!(result[2].scan.env, "staging");
+    }
+
+    #[test]
+    fn test_apply_sort_by_status() {
+        let scans = vec![
+            make_scan("1", "App", "prod", "STARTED"),
+            make_scan("2", "App", "prod", "COMPLETED"),
+            make_scan("3", "App", "prod", "ERROR"),
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("status".to_string()),
+            sort_dir: Some(SortDir::Asc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        assert_eq!(result[0].scan.status, "COMPLETED");
+        assert_eq!(result[1].scan.status, "ERROR");
+        assert_eq!(result[2].scan.status, "STARTED");
+    }
+
+    #[test]
+    fn test_apply_sort_by_findings() {
+        let scans = vec![
+            make_scan_with_findings("1", 1, 0, 0),  // 1 high
+            make_scan_with_findings("2", 5, 0, 0),  // 5 high
+            make_scan_with_findings("3", 0, 10, 0), // 0 high, 10 medium
+        ];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("findings".to_string()),
+            sort_dir: Some(SortDir::Desc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        // 5 high should be first (highest priority)
+        assert_eq!(result[0].scan.id, "2");
+        // 1 high should be second
+        assert_eq!(result[1].scan.id, "1");
+        // 0 high, 10 medium should be last
+        assert_eq!(result[2].scan.id, "3");
+    }
+
+    #[test]
+    fn test_apply_sort_by_duration() {
+        let mut scan1 = make_scan("1", "App", "prod", "COMPLETED");
+        scan1.scan_duration = Some("300".to_string()); // 5 min
+        let mut scan2 = make_scan("2", "App", "prod", "COMPLETED");
+        scan2.scan_duration = Some("60".to_string()); // 1 min
+        let mut scan3 = make_scan("3", "App", "prod", "COMPLETED");
+        scan3.scan_duration = Some("600".to_string()); // 10 min
+
+        let scans = vec![scan1, scan2, scan3];
+        let pagination = PaginationArgs {
+            limit: None,
+            page: None,
+            sort_by: Some("duration".to_string()),
+            sort_dir: Some(SortDir::Asc),
+        };
+
+        let result = apply_sort(scans, &pagination);
+        assert_eq!(result[0].scan.id, "2"); // 1 min
+        assert_eq!(result[1].scan.id, "1"); // 5 min
+        assert_eq!(result[2].scan.id, "3"); // 10 min
+    }
+
+    // ========================================================================
+    // ScanContext tests
+    // ========================================================================
+
+    #[test]
+    fn test_scan_context_from_scan_result() {
+        let scan = make_scan("scan-123", "MyApp", "production", "COMPLETED");
+        let context = ScanContext::from_scan_result(&scan);
+
+        assert_eq!(context.app_name, "MyApp");
+        assert_eq!(context.env, "production");
+        assert_eq!(context.scan_id, "scan-123");
+        assert_eq!(context.status, "COMPLETED");
+        assert!(context.host.is_some());
     }
 }

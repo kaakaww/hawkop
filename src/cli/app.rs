@@ -3,7 +3,8 @@
 use log::debug;
 
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
-use crate::client::{Application, PaginationParams, StackHawkApi, fetch_remaining_pages};
+use crate::client::models::Application;
+use crate::client::{ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
 use crate::models::AppDisplay;
 use crate::output::Formattable;
@@ -122,5 +123,133 @@ fn filter_by_type(apps: Vec<Application>, app_type: Option<&str>) -> Vec<Applica
                 .collect()
         }
         None => apps,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Test Fixtures
+    // ========================================================================
+
+    /// Create a minimal Application for testing
+    fn make_app(id: &str, name: &str, app_type: Option<&str>) -> Application {
+        Application {
+            id: id.to_string(),
+            name: name.to_string(),
+            env: Some("prod".to_string()),
+            risk_level: None,
+            status: Some("ACTIVE".to_string()),
+            organization_id: Some("org-123".to_string()),
+            application_type: app_type.map(|t| t.to_string()),
+            cloud_scan_target: None,
+        }
+    }
+
+    // ========================================================================
+    // filter_by_type tests
+    // ========================================================================
+
+    #[test]
+    fn test_filter_by_type_no_filter() {
+        let apps = vec![
+            make_app("1", "App One", Some("STANDARD")),
+            make_app("2", "App Two", Some("CLOUD")),
+            make_app("3", "App Three", None),
+        ];
+
+        let result = filter_by_type(apps, None);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_filter_by_type_standard() {
+        let apps = vec![
+            make_app("1", "Standard App", Some("STANDARD")),
+            make_app("2", "Cloud App", Some("CLOUD")),
+            make_app("3", "Untyped App", None), // defaults to STANDARD
+        ];
+
+        let result = filter_by_type(apps, Some("standard"));
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().any(|a| a.id == "1"));
+        assert!(result.iter().any(|a| a.id == "3")); // untyped defaults to standard
+    }
+
+    #[test]
+    fn test_filter_by_type_cloud() {
+        let apps = vec![
+            make_app("1", "Standard App", Some("STANDARD")),
+            make_app("2", "Cloud App", Some("CLOUD")),
+            make_app("3", "Another Cloud", Some("CLOUD")),
+        ];
+
+        let result = filter_by_type(apps, Some("cloud"));
+        assert_eq!(result.len(), 2);
+        assert!(
+            result
+                .iter()
+                .all(|a| a.application_type.as_deref() == Some("CLOUD"))
+        );
+    }
+
+    #[test]
+    fn test_filter_by_type_case_insensitive() {
+        let apps = vec![
+            make_app("1", "Cloud App", Some("CLOUD")),
+            make_app("2", "Standard App", Some("STANDARD")),
+        ];
+
+        // All these variations should match the cloud app
+        assert_eq!(filter_by_type(apps.clone(), Some("CLOUD")).len(), 1);
+        assert_eq!(filter_by_type(apps.clone(), Some("cloud")).len(), 1);
+        assert_eq!(filter_by_type(apps.clone(), Some("Cloud")).len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_type_empty_list() {
+        let apps: Vec<Application> = vec![];
+        let result = filter_by_type(apps, Some("standard"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_type_no_matches() {
+        let apps = vec![
+            make_app("1", "Standard App", Some("STANDARD")),
+            make_app("2", "Another Standard", Some("STANDARD")),
+        ];
+
+        let result = filter_by_type(apps, Some("cloud"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_type_preserves_order() {
+        let apps = vec![
+            make_app("3", "Third", Some("STANDARD")),
+            make_app("1", "First", Some("STANDARD")),
+            make_app("2", "Second", Some("STANDARD")),
+        ];
+
+        let result = filter_by_type(apps, Some("standard"));
+        assert_eq!(result[0].id, "3");
+        assert_eq!(result[1].id, "1");
+        assert_eq!(result[2].id, "2");
+    }
+
+    #[test]
+    fn test_filter_by_type_untyped_defaults_to_standard() {
+        let apps = vec![make_app("1", "No Type", None)];
+
+        // Should match standard filter
+        let result = filter_by_type(apps.clone(), Some("standard"));
+        assert_eq!(result.len(), 1);
+
+        // Should NOT match cloud filter
+        let result = filter_by_type(apps, Some("cloud"));
+        assert!(result.is_empty());
     }
 }

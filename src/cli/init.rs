@@ -3,7 +3,7 @@
 use colored::Colorize;
 use dialoguer::{Password, Select, theme::ColorfulTheme};
 
-use crate::client::{StackHawkApi, StackHawkClient};
+use crate::client::{AuthApi, ListingApi, StackHawkClient};
 use crate::config::Config;
 use crate::error::Result;
 
