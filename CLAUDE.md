@@ -4,20 +4,50 @@
 
 HawkOp is a professional CLI companion for the StackHawk platform, built in Rust. It provides developers and security teams with terminal access to StackHawk's application security intelligence.
 
+## Tech Stack
+
+- **Language**: Rust 2024 edition
+- **CLI Framework**: clap v4 with derives
+- **Async Runtime**: tokio
+- **HTTP Client**: reqwest with rustls-tls
+- **Serialization**: serde (JSON/YAML)
+- **Error Handling**: anyhow + thiserror
+- **Output**: tabled (tables), colored (terminal colors)
+- **Interactive**: dialoguer, indicatif
+- **Rate Limiting**: governor (reactive per-endpoint)
+- **Caching**: rusqlite (SQLite), sha2 (cache key hashing)
+- **Shell Completions**: clap_complete (static + dynamic)
+- **Date/Time**: chrono
+
 ## Project Structure
 
 ```
 src/
 ├── main.rs              # CLI entrypoint, command routing
 ├── error.rs             # Error types using thiserror
+├── cache/               # SQLite-backed response caching
+│   ├── mod.rs           # TTL configs, re-exports
+│   ├── key.rs           # Cache key generation (SHA-256)
+│   ├── storage.rs       # SQLite storage layer
+│   └── client.rs        # CachedStackHawkClient wrapper
 ├── cli/                 # Command definitions and handlers
 │   ├── mod.rs           # Clap command enums (Commands, OrgCommands, etc.)
+│   ├── args/            # Shared CLI argument types
+│   │   ├── mod.rs
+│   │   ├── common.rs    # CommonArgs (org, format, debug)
+│   │   ├── filters.rs   # ScanFilters, AuditFilters, etc.
+│   │   └── pagination.rs # PaginationArgs
+│   ├── handlers/        # Generic command handlers
+│   │   ├── mod.rs
+│   │   └── list.rs      # Generic list handler with pagination
 │   ├── context.rs       # CommandContext for shared state
+│   ├── completions.rs   # Dynamic shell completions (API-queried)
+│   ├── cache.rs         # Cache management commands
 │   ├── init.rs          # Interactive setup
 │   ├── status.rs        # Config status display
 │   ├── org.rs           # Organization commands
 │   ├── app.rs           # Application commands
-│   ├── scan.rs          # Scan commands
+│   ├── scan.rs          # Scan commands (list + detail drill-down)
 │   ├── user.rs          # User commands
 │   ├── team.rs          # Team commands
 │   ├── policy.rs        # Policy commands
@@ -27,18 +57,53 @@ src/
 │   ├── config.rs        # Scan config commands
 │   └── secret.rs        # Secret commands
 ├── client/              # StackHawk API client
-│   ├── mod.rs           # API trait + data models (Organization, Application, etc.)
+│   ├── mod.rs           # StackHawkApi trait definition
 │   ├── stackhawk.rs     # HTTP client implementation
+│   ├── api/             # API endpoint implementations
+│   │   ├── mod.rs
+│   │   ├── auth.rs      # Authentication/JWT handling
+│   │   ├── listing.rs   # List endpoint implementations
+│   │   └── scan_detail.rs # Scan detail with findings
+│   ├── models/          # API data models
+│   │   ├── mod.rs
+│   │   ├── app.rs       # Application
+│   │   ├── audit.rs     # AuditLogEntry
+│   │   ├── auth.rs      # JwtPayload, TokenInfo
+│   │   ├── config.rs    # ScanConfig
+│   │   ├── finding.rs   # Finding, FindingDetail
+│   │   ├── oas.rs       # OpenApiSpec
+│   │   ├── org.rs       # Organization
+│   │   ├── policy.rs    # ScanPolicy
+│   │   ├── repo.rs      # Repository
+│   │   ├── scan.rs      # Scan, ScanDetail
+│   │   ├── secret.rs    # SecretInfo
+│   │   └── user.rs      # User, Team
 │   ├── pagination.rs    # PaginationParams, PagedResponse, filters
 │   ├── parallel.rs      # fetch_remaining_pages() for parallel API calls
 │   ├── rate_limit.rs    # Per-endpoint reactive rate limiting
-│   └── mock.rs          # Mock client for testing
-├── config/              # YAML config management (~/.hawkop/config.yaml)
+│   ├── mock.rs          # Mock client for testing
+│   └── fixtures.rs      # Test fixtures
+├── config/              # Configuration management
+│   └── mod.rs           # YAML config (~/.hawkop/config.yaml)
 ├── models/              # Display models for CLI output
 │   ├── mod.rs
-│   └── display.rs       # OrgDisplay, AppDisplay, ScanDisplay, etc.
+│   └── display/         # Individual display models
+│       ├── mod.rs
+│       ├── app.rs       # AppDisplay
+│       ├── audit.rs     # AuditDisplay
+│       ├── common.rs    # Shared display utilities
+│       ├── config.rs    # ConfigDisplay
+│       ├── finding.rs   # FindingDisplay
+│       ├── oas.rs       # OasDisplay
+│       ├── org.rs       # OrgDisplay
+│       ├── policy.rs    # PolicyDisplay
+│       ├── repo.rs      # RepoDisplay
+│       ├── scan.rs      # ScanDisplay
+│       ├── secret.rs    # SecretDisplay
+│       └── user.rs      # UserDisplay, TeamDisplay
 └── output/              # Output formatters
     ├── mod.rs           # Formattable trait
+    ├── formatters.rs    # Format selection logic
     ├── table.rs         # tabled formatting
     └── json.rs          # JSON with metadata wrapper
 scripts/
@@ -56,33 +121,68 @@ cargo clippy -- -D warnings      # Lint with warnings as errors
 cargo test                       # Run all tests
 ```
 
-## Current CLI Commands
+## Current CLI Commands (v0.4.0)
 
 ```
-hawkop init              # Interactive setup
-hawkop status            # Show config status
-hawkop version           # Version info
-hawkop org list|set|get  # Organization management
-hawkop app list          # List applications (supports pagination + type filter)
-hawkop scan list         # List scans (supports pagination + filters)
-hawkop user list         # List organization members
-hawkop team list         # List organization teams
-hawkop policy list       # List scan policies
-hawkop repo list         # List repositories in attack surface
-hawkop audit list        # View audit log (supports filters + date ranges)
-hawkop oas list          # List hosted OpenAPI specifications
-hawkop config list       # List scan configurations
-hawkop secret list       # List user secret names
-hawkop completion <shell> # Generate shell completions (bash/zsh/fish/powershell)
+hawkop init                      # Interactive setup
+hawkop status                    # Show config status
+hawkop version                   # Version info
+
+hawkop org list|set|get          # Organization management
+hawkop app list                  # List applications (pagination + type filter)
+hawkop scan list                 # List scans (pagination + filters)
+hawkop scan get [ID]             # Scan detail with drill-down (plugin/URI filtering)
+hawkop user list                 # List organization members
+hawkop team list                 # List organization teams
+hawkop policy list               # List scan policies
+hawkop repo list                 # List repositories in attack surface
+hawkop audit list                # View audit log (filters + date ranges)
+hawkop oas list                  # List hosted OpenAPI specifications
+hawkop config list               # List scan configurations
+hawkop secret list               # List user secret names
+
+hawkop cache status              # Show cache statistics
+hawkop cache clear               # Clear cached responses
+hawkop cache path                # Show cache database path
+
+hawkop completion <shell>        # Generate shell completions (bash/zsh/fish/powershell)
 ```
 
-Global flags: `--format table|json`, `--org <ID>`, `--config <PATH>`, `--debug`
+**Global flags:** `--format table|json`, `--org <ID>`, `--config <PATH>`, `--debug`, `--no-cache`
+
+## Configuration
+
+### Files & Directories
+- **Config file**: `~/.hawkop/config.yaml`
+- **Cache database**: `~/.hawkop/cache/hawkop_cache.db`
+
+### Environment Variables
+- `HAWKOP_API_KEY` - API key for authentication
+- `HAWKOP_ORG_ID` - Default organization ID
+- `HAWKOP_FORMAT` - Output format (table/json)
+- `HAWKOP_DEBUG` - Enable debug logging
+- `HAWKOP_NO_CACHE` - Disable response caching
+
+### Precedence
+CLI flags > environment variables > config file > defaults
+
+## Key Features
+
+- **JWT-based authentication** with automatic token refresh
+- **SQLite-backed response caching** with configurable TTLs
+- **Dynamic shell completions** with API-queried data (org IDs, app IDs, etc.)
+- **Scan detail drill-down** with plugin/URI filtering
+- **Multiple output formats** (table/JSON/pretty)
+- **Reactive per-endpoint rate limiting** (only activates after 429)
+- **Parallel pagination** for large datasets
+- **Cross-platform config** (~/.hawkop/)
 
 ## Adding New Commands - Pattern to Follow
 
-### 1. Add API Models (`src/client/mod.rs`)
+### 1. Add API Models (`src/client/models/`)
 
 ```rust
+// src/client/models/newresource.rs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewResource {
@@ -102,7 +202,7 @@ pub trait StackHawkApi: Send + Sync {
 }
 ```
 
-### 3. Implement in Client (`src/client/stackhawk.rs`)
+### 3. Implement in Client (`src/client/api/listing.rs` or new file)
 
 ```rust
 async fn list_new_resource(&self, org_id: &str, pagination: Option<&PaginationParams>) -> Result<Vec<NewResource>> {
@@ -122,9 +222,10 @@ async fn list_new_resource(&self, org_id: &str, pagination: Option<&PaginationPa
 }
 ```
 
-### 4. Add Display Model (`src/models/display.rs`)
+### 4. Add Display Model (`src/models/display/`)
 
 ```rust
+// src/models/display/newresource.rs
 #[derive(Debug, Clone, Tabled, Serialize)]
 pub struct NewResourceDisplay {
     #[tabled(rename = "ID")]
@@ -154,6 +255,13 @@ Add the match arm for the new command.
 - Reactive per-endpoint rate limiting (only activates after 429)
 - Categories: Scan (80/sec), User (80/sec), AppList (80/sec), Default (6/sec)
 - See `src/client/rate_limit.rs` for EndpointCategory
+
+### Response Caching
+
+- SQLite-backed caching in `~/.hawkop/cache/hawkop_cache.db`
+- TTLs configured per-endpoint type (see `src/cache/mod.rs`)
+- Cache key generation uses SHA-256 hash of request parameters
+- Bypass with `--no-cache` flag or `HAWKOP_NO_CACHE=1`
 
 ### Parallel Pagination
 
@@ -188,7 +296,7 @@ HawkOp follows principles from [clig.dev](https://clig.dev) and [12-Factor CLI A
 
 ## Coding Conventions
 
-- Rust 2021 edition, idiomatic ownership, `?` for error propagation
+- Rust 2024 edition, idiomatic ownership, `?` for error propagation
 - `snake_case` for modules/variables, `PascalCase` for types
 - CLI flags mirror existing patterns (`--org`, `--limit`, `--format`)
 - Keep handlers small; business logic in `client` or `config` modules

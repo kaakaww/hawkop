@@ -681,7 +681,7 @@
       "post" : {
         "tags" : [ "Applications" ],
         "summary" : "Create application",
-        "description" : "## Create Application\nCreates a new Stackhawk Application for this organization.\n\nApplications group scan results from HawkScan, and coordinate settings to influence HawkScan behavior. The application may also contain a specific environment name and id.\nFor more information, see [Applications](https://docs.stackhawk.com/web-app/applications.html).\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|applicationId|\"\"|The UUID identifier of this application.|\n|name|\"\"|The name of this application.|\n|env|\"\"|The name of this environment. Only set when requesting Application Environments.|\n|envId|\"\"|The UUID identifier of this environment.|\n|applicationStatus|\"ACTIVE\"|The status of this application. Either ACTIVE or ENV_INCOMPLETE.|\n|organizationId|\"\"|The UUID identifier of the organization that owns this application.|\n|applicationType|\"STANDARD\"|The type of this application.|\n|cloudScanTarget|{}|Optional Cloud Scan Target configuration.|\n\nThe `env` and `envId` fields are not populated on the response with this endpoint.\n\n> 👥 Teams Supported\n> If the user belongs to a StackHawk [Team](https://docs.stackhawk.com/web-app/teams.html), a created application will belong to the user's Team.\n\n> 🧾 Audited\n> This is recorded as `APPLICATION_ADDED` [User Activity](https://apidocs.stackhawk.com/reference/listauditactivity#user-activity-types).\n",
+        "description" : "## Create Application\nCreates a new Stackhawk Application for this organization.\n\nApplications group scan results from HawkScan, and coordinate settings to influence HawkScan behavior. The application may also contain a specific environment name and id.\nFor more information, see [Applications](https://docs.stackhawk.com/web-app/applications.html).\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|applicationId|\"\"|The UUID identifier of this application.|\n|name|\"\"|The name of this application.|\n|env|\"\"|The name of this environment. Only set when requesting Application Environments.|\n|envId|\"\"|The UUID identifier of this environment.|\n|applicationStatus|\"ACTIVE\"|The status of this application. Either ACTIVE or ENV_INCOMPLETE.|\n|organizationId|\"\"|The UUID identifier of the organization that owns this application.|\n|applicationType|\"STANDARD\"|The type of this application.|\n|cloudScanTarget|{}|Optional Cloud Scan Target configuration.|\n\nThe `env` and `envId` fields are not populated on the response with this endpoint.\nA name is not required to create an application, but it is strongly encouraged.\n\n> 👥 Teams Supported\n> If the user belongs to a StackHawk [Team](https://docs.stackhawk.com/web-app/teams.html), a created application will belong to the user's Team.\n\n> 🧾 Audited\n> This is recorded as `APPLICATION_ADDED` [User Activity](https://apidocs.stackhawk.com/reference/listauditactivity#user-activity-types).\n",
         "operationId" : "createApplication",
         "parameters" : [ {
           "name" : "orgId",
@@ -1914,7 +1914,7 @@
       "get" : {
         "tags" : [ "User" ],
         "summary" : "Get the current user",
-        "description" : "## StackHawk Current User\n\nThis endpoint provides details about the requesting user. This information helps determine what access an authorized user has on the StackHawk platform, and how they are authenticated.\n\nThe StackHawk user is seperated into two sections. `provider` specifies how the user authenticates. `external` specifies details of the user, and the access they have to the StackHawk Platform.\n\n### User\n\nA StackHawk User as identified by the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|stackhawkId|\"\"|An internal identifier for this user. _This is not the user uuid_.|\n|provider|{}|Information about the login provider assigned to this user. [Read More](#providerinfo)|\n|external|{}|Information about the user itself, and how they appear in the platform. [Read More](#userexternal)|\n|createdTimestamp|0|Creation timestamp of this user.|\n\n### ProviderInfo\n\nInformation about a users access Provider to the StackHawk platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|slug|\"UNKNOWN\"|User access provider.|\n|clientId|\"\"|Provider client Id.|\n|created|0|Milliseconds since epoch timestamp of when the user access was granted.|\n\n### UserExternal\n\nInformation about the User and how they can access the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this user.|\n|email|\"\"|Users email address.|\n|firstName|\"\"|Users first name.|\n|lastName|\"\"|Users last name.|\n|fullName|\"\"|Users full name.|\n|avatarUrl|\"\"|Users avatar url.|\n|applicationIds|[]|An array of application ids this user has access to.|\n|organizations|[]|Organizations a user is a part of. [Read More](#userorganization)|\n|preferences|{}|User preferences; options that can be set by the user. [Read More](#userpreferences)|\n|metadata|[]|Metadata associated to this external user. Primarily used for stuffing 3rd party verification data.|\n|teams|[]|Teams this user belongs to.|\n\n### UserPreferences\n\nUser settings and preferences for interaction within StackHawk.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|dontReceiveWeeklyEmail|false|If the user will be opted out of weekly organization update emails.|\n|defaultOrganizationId|\"\"|The UUID identifier of the organization a user currently logs into.|\n|dontReceiveTrialingEmails|false|If `true`, the user will be opted out of stackhawk subscription-trialing notifications.|\n\nUser preferences can be adjusted from the [account settings page](https://app.stackhawk.com/settings/account) in the StackHawk platform.\n\n### UserOrganization\n\nRepresents the relationship between a User and an Organization they belong to.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|organization|{}|The StackHawk organization this user belongs to.|\n|role|\"UNKNOWN\"|The organization role the user belongs to within this organization.|\n|features|[]|Specific access features available to this organization.|\n|metadata|[]|The user's organizational specific metadata.|\n|achievements|[]|Specific product journey events that have triggered for this user.|\n\n### Organization\n\nA StackHawk Organization.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this StackHawk Organization.|\n|name|\"\"|The name of this Organization.|\n|subscription|{}|The billing subscription of this Organization.|\n|isLinkedToExternalBilling|false|If this organization is yet connected to external billing (Stripe).|\n|plan|\"\"|The feature plan this organization belongs to.|\n|features|[]|Specific overrides to the feature flags in the plan.|\n|settings|{}|Organization settings.|\n|createdTimestamp|0|Creation timestamp of this organization.|\n\nA StackHawk platform user can belong to many organizations.\n",
+        "description" : "## StackHawk Current User\n\nThis endpoint provides details about the requesting user. This information helps determine what access an authorized user has on the StackHawk platform, and how they are authenticated.\n\nThe StackHawk user is seperated into two sections. `provider` specifies how the user authenticates. `external` specifies details of the user, and the access they have to the StackHawk Platform.\n\n### User\n\nA StackHawk User as identified by the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|stackhawkId|\"\"|An internal identifier for this user. _This is not the user uuid_.|\n|provider|{}|Information about the login provider assigned to this user. [Read More](#providerinfo)|\n|external|{}|Information about the user itself, and how they appear in the platform. [Read More](#userexternal)|\n|createdTimestamp|0|Creation timestamp of this user.|\n\n### ProviderInfo\n\nInformation about a users access Provider to the StackHawk platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|slug|\"UNKNOWN\"|User access provider.|\n|clientId|\"\"|Provider client Id.|\n|created|0|Milliseconds since epoch timestamp of when the user access was granted.|\n\n### UserExternal\n\nInformation about the User and how they can access the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this user.|\n|email|\"\"|Users email address.|\n|firstName|\"\"|Users first name.|\n|lastName|\"\"|Users last name.|\n|fullName|\"\"|Users full name.|\n|avatarUrl|\"\"|Users avatar url.|\n|applicationIds|[]|An array of application ids this user has access to.|\n|organizations|[]|Organizations a user is a part of. [Read More](#userorganization)|\n|preferences|{}|User preferences; options that can be set by the user. [Read More](#userpreferences)|\n|metadata|[]|Metadata associated to this external user. Primarily used for stuffing 3rd party verification data.|\n|teams|[]|Teams this user belongs to.|\n\n### UserPreferences\n\nUser settings and preferences for interaction within StackHawk.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|dontReceiveWeeklyEmail|false|If the user will be opted out of weekly organization update emails.|\n|defaultOrganizationId|\"\"|The UUID identifier of the organization a user currently logs into.|\n|dontReceiveTrialingEmails|false|If `true`, the user will be opted out of stackhawk subscription-trialing notifications.|\n\nUser preferences can be adjusted from the [account settings page](https://app.stackhawk.com/settings/account) in the StackHawk platform.\n\n### UserOrganization\n\nRepresents the relationship between a User and an Organization they belong to.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|organization|{}|The StackHawk organization this user belongs to.|\n|role|\"UNKNOWN\"|The organization role the user belongs to within this organization.|\n|features|[]|Specific access features available to this organization.|\n|metadata|[]|The user's organizational specific metadata.|\n|achievements|[]|Specific product journey events that have triggered for this user.|\n|permissions|[]|Permissions the User has in this organization.|\n\n### Organization\n\nA StackHawk Organization.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this StackHawk Organization.|\n|name|\"\"|The name of this Organization.|\n|subscription|{}|The billing subscription of this Organization.|\n|isLinkedToExternalBilling|false|If this organization is yet connected to external billing (Stripe).|\n|plan|\"\"|The feature plan this organization belongs to.|\n|features|[]|Specific overrides to the feature flags in the plan.|\n|settings|{}|Organization settings.|\n|createdTimestamp|0|Creation timestamp of this organization.|\n\nA StackHawk platform user can belong to many organizations.\n",
         "operationId" : "getUser",
         "responses" : {
           "200" : {
@@ -2053,7 +2053,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "id",
             "enum" : [ "id", "name" ]
           }
         }, {
@@ -2063,7 +2062,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "desc",
             "enum" : [ "asc", "desc" ]
           }
         } ],
@@ -2124,8 +2122,9 @@
           "schema" : {
             "maximum" : 100,
             "minimum" : 1,
-            "type" : "string",
-            "default" : "10"
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 10
           }
         }, {
           "name" : "pageToken",
@@ -2273,7 +2272,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "id",
             "enum" : [ "id", "name" ]
           }
         }, {
@@ -2283,7 +2281,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "desc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -2607,7 +2604,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "name",
             "enum" : [ "name", "displayName" ]
           }
         }, {
@@ -2617,7 +2613,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -2977,6 +2972,21 @@
             "default" : [ ]
           }
         }, {
+          "name" : "integrationIds",
+          "in" : "query",
+          "description" : "A comma-delimited list of integration UUIDs to filter repositories by specific integrations.",
+          "required" : false,
+          "schema" : {
+            "pattern" : "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12},?)*$",
+            "type" : "array",
+            "items" : {
+              "pattern" : "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12},?)*$",
+              "type" : "string",
+              "format" : "uuid"
+            },
+            "default" : [ ]
+          }
+        }, {
           "name" : "sensitiveDataTags",
           "in" : "query",
           "description" : "A comma-delimited list of sensitive data tags for repositories.",
@@ -3185,7 +3195,7 @@
       "get" : {
         "tags" : [ "Organizations" ],
         "summary" : "List Members",
-        "description" : "## List Members\n\nList this organization's members.\n\nReturns a paginated list of StackHawk Users.\n\n### User\n\nA StackHawk User as identified by the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|stackhawkId|\"\"|An internal identifier for this user. _This is not the user uuid_.|\n|provider|{}|Information about the login provider assigned to this user. [Read More](#providerinfo)|\n|external|{}|Information about the user itself, and how they appear in the platform. [Read More](#userexternal)|\n|createdTimestamp|0|Creation timestamp of this user.|\n\n### UserOrganization\n\nRepresents the relationship between a User and an Organization they belong to.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|organization|{}|The StackHawk organization this user belongs to.|\n|role|\"UNKNOWN\"|The organization role the user belongs to within this organization.|\n|features|[]|Specific access features available to this organization.|\n|metadata|[]|The user's organizational specific metadata.|\n|achievements|[]|Specific product journey events that have triggered for this user.|\n\n| Parameter | Description |\n|:---:|:---:|\n|UNKNOWN|null|\n|OWNER|null|\n|ADMIN|null|\n|MEMBER|null|\n\n### Organization\n\nA StackHawk Organization.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this StackHawk Organization.|\n|name|\"\"|The name of this Organization.|\n|subscription|{}|The billing subscription of this Organization.|\n|isLinkedToExternalBilling|false|If this organization is yet connected to external billing (Stripe).|\n|plan|\"\"|The feature plan this organization belongs to.|\n|features|[]|Specific overrides to the feature flags in the plan.|\n|settings|{}|Organization settings.|\n|createdTimestamp|0|Creation timestamp of this organization.|\n\nA StackHawk platform user can belong to many organizations.\n> 🖍️ Restricted\n> This endpoint is *NOT* accessible to users with the **Member** role.\n",
+        "description" : "## List Members\n\nList this organization's members.\n\nReturns a paginated list of StackHawk Users.\n\n### User\n\nA StackHawk User as identified by the platform.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|stackhawkId|\"\"|An internal identifier for this user. _This is not the user uuid_.|\n|provider|{}|Information about the login provider assigned to this user. [Read More](#providerinfo)|\n|external|{}|Information about the user itself, and how they appear in the platform. [Read More](#userexternal)|\n|createdTimestamp|0|Creation timestamp of this user.|\n\n### UserOrganization\n\nRepresents the relationship between a User and an Organization they belong to.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|organization|{}|The StackHawk organization this user belongs to.|\n|role|\"UNKNOWN\"|The organization role the user belongs to within this organization.|\n|features|[]|Specific access features available to this organization.|\n|metadata|[]|The user's organizational specific metadata.|\n|achievements|[]|Specific product journey events that have triggered for this user.|\n|permissions|[]|Permissions the User has in this organization.|\n\n| Parameter | Description |\n|:---:|:---:|\n|UNKNOWN|null|\n|OWNER|null|\n|ADMIN|null|\n|MEMBER|null|\n|TEAM_ADMIN|null|\n\n### Organization\n\nA StackHawk Organization.\n\n| Parameter | Default | Description |\n|:---:|:---:|:---:|\n|id|\"\"|The UUID identifier of this StackHawk Organization.|\n|name|\"\"|The name of this Organization.|\n|subscription|{}|The billing subscription of this Organization.|\n|isLinkedToExternalBilling|false|If this organization is yet connected to external billing (Stripe).|\n|plan|\"\"|The feature plan this organization belongs to.|\n|features|[]|Specific overrides to the feature flags in the plan.|\n|settings|{}|Organization settings.|\n|createdTimestamp|0|Creation timestamp of this organization.|\n\nA StackHawk platform user can belong to many organizations.\n> 🖍️ Restricted\n> This endpoint is *NOT* accessible to users with the **Member** role.\n",
         "operationId" : "listMembers",
         "parameters" : [ {
           "name" : "orgId",
@@ -3227,7 +3237,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "id",
             "enum" : [ "id" ]
           }
         }, {
@@ -3237,7 +3246,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -3374,7 +3382,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "createdDate",
             "enum" : [ "createdDate" ]
           }
         }, {
@@ -3384,7 +3391,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "desc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -3528,7 +3534,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "repoName",
             "enum" : [ "repoId", "repoName" ]
           }
         }, {
@@ -3538,7 +3543,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -3718,7 +3722,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "name",
             "enum" : [ "name" ]
           }
         }, {
@@ -3728,7 +3731,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         }, {
@@ -3931,7 +3933,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "name",
             "enum" : [ "name", "id" ]
           }
         }, {
@@ -3941,7 +3942,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         } ],
@@ -4194,7 +4194,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "name",
             "enum" : [ "id", "name" ]
           }
         }, {
@@ -4204,7 +4203,6 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "default" : "asc",
             "enum" : [ "asc", "desc" ]
           }
         } ],
@@ -4682,7 +4680,8 @@
           "techFlags" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "boolean"
+              "type" : "boolean",
+              "deprecated" : true
             },
             "description" : "Technology flags for this policy. This is a collection of specific technology identifiers that further configure scan behavior.",
             "readOnly" : true,
@@ -4777,6 +4776,10 @@
           "param" : {
             "type" : "string",
             "description" : ""
+          },
+          "parameterizedPath" : {
+            "type" : "string",
+            "description" : "Parameterized path template from crawl plan for consistent alert fingerprinting.\n Example: \"/api/v1/users/{userId}\" instead of \"/api/v1/users/123\""
           },
           "pluginId" : {
             "type" : "string",
@@ -4991,7 +4994,8 @@
           "tags" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "",
             "deprecated" : false
@@ -5084,7 +5088,8 @@
             "description" : "",
             "deprecated" : true,
             "items" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             }
           },
           "scan" : {
@@ -5865,7 +5870,8 @@
           "requestHeaders" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "List of key/value pairs to be included as headers in the request to the `path`.\nHeaders that match the following pattern are unable to be added or modified `'^(Host|Origin|Proxy-.*|Sec-.*|Content-Length)'`.",
             "deprecated" : false
@@ -5966,7 +5972,8 @@
           "credentials" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "The credentials required for the authentication script. These values will be redacted.",
             "deprecated" : false
@@ -5978,7 +5985,8 @@
           "parameters" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "The parameters required for the authentication script.",
             "deprecated" : false
@@ -6457,7 +6465,8 @@
           "credentials" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Key-Value map of additional environment variables or secrets to pass along into the execution of the command. These values will be redacted from the logs.",
             "deprecated" : false
@@ -6465,7 +6474,8 @@
           "environment" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Key-Value map of environment variable names and values to pass along into the execution of the command.",
             "deprecated" : false
@@ -6539,7 +6549,8 @@
           "additionalCreds" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "A list of name/value pairs of any additional fields or credentials that need to be posted to the OAuth provider token endpoint.",
             "deprecated" : false
@@ -6569,7 +6580,8 @@
           "additionalBodyParams" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "A list of optional additional name/value pairs to be included in the request body of the post.\n **NOTE:** These values are not redacted, if you need additional sensitive values please use `outhCredentials.additionalCreds`",
             "deprecated" : false
@@ -6577,7 +6589,8 @@
           "additionalQueryParams" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "A list of optional additional name/value pairs to be passed to the query string.",
             "deprecated" : false
@@ -6589,7 +6602,8 @@
           "requestHeaders" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Additional headers to be sent along with the request to the token endpoint",
             "deprecated" : false
@@ -6658,7 +6672,8 @@
           "globalParameters" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Use this for parameters for all users that can't be discovered by smart crawling.",
             "deprecated" : false
@@ -6914,7 +6929,8 @@
           "parameters" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "A map of key/value pairs that will be passed to your session script, which can be accessed via `sessionWrapper.getParam()` function.",
             "deprecated" : false
@@ -7005,7 +7021,8 @@
           "globalParameters" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Use this for parameters for individual users that can't be discovered by smart crawling.",
             "deprecated" : false
@@ -7043,7 +7060,8 @@
           "credentials" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Key-value pairs of sensitive credentials required by the authentication script that will be redacted from logs.",
             "deprecated" : false
@@ -7134,7 +7152,8 @@
           "requestHeaders" : {
             "type" : "object",
             "additionalProperties" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             },
             "description" : "Key-value map of additional headers to be sent along with the request to the app target host.",
             "deprecated" : false
@@ -7280,9 +7299,13 @@
             "type" : "string",
             "description" : ""
           },
+          "parameterizedPath" : {
+            "type" : "string",
+            "description" : "Parameterized path template for consistent triage matching across scans.\n Example: \"/api/v1/users/{userId}\" instead of \"/api/v1/users/123\"\n When present, triage rules match on this template rather than exact URI,\n allowing rules to persist when faker values change between scans."
+          },
           "path" : {
             "type" : "string",
-            "description" : ""
+            "description" : "The actual URI path where the finding was detected (e.g., \"/api/v1/users/123\")"
           },
           "result" : {
             "type" : "string",
@@ -8255,6 +8278,13 @@
             "type" : "string",
             "description" : "If applicable, the unique identifier of the repository's namespace."
           },
+          "notes" : {
+            "type" : "array",
+            "description" : "Notes/comments added to this repository by users.",
+            "items" : {
+              "$ref" : "#/components/schemas/repository.RepositoryNote"
+            }
+          },
           "openApiSpecInfo" : {
             "$ref" : "#/components/schemas/open_api_spec.OpenAPISpecInfo"
           },
@@ -8331,6 +8361,29 @@
           }
         },
         "description" : ""
+      },
+      "repository.RepositoryNote" : {
+        "type" : "object",
+        "properties" : {
+          "note" : {
+            "type" : "string",
+            "description" : "The text content of the note."
+          },
+          "stackhawkId" : {
+            "type" : "string",
+            "description" : "The unique StackHawk identifier for this note."
+          },
+          "timestamp" : {
+            "type" : "integer",
+            "description" : "The timestamp when this note was created (Unix timestamp in milliseconds).",
+            "format" : "int64"
+          },
+          "userEmail" : {
+            "type" : "string",
+            "description" : "The email of the user who created this note."
+          }
+        },
+        "description" : "A note/comment added to a repository by a user.\n Used to track decisions and justifications, such as when excluding a repository from the attack surface."
       },
       "repository.Tag" : {
         "type" : "object",
@@ -8456,6 +8509,24 @@
         },
         "description" : "settings for Cloud Scans"
       },
+      "organization.IPAllowListingSettings" : {
+        "type" : "object",
+        "properties" : {
+          "ipv4CidrRange" : {
+            "type" : "array",
+            "properties" : {
+              "empty" : {
+                "type" : "boolean"
+              }
+            },
+            "description" : "List of allowed ipv4 CIDR ranges API connections must come through. All IPs are allowed if this list is empty.",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "description" : "Defines ranges of IP addresses that users of this org must connect through"
+      },
       "organization.LimitedMemberSettings" : {
         "type" : "object",
         "properties" : {
@@ -8478,8 +8549,11 @@
           },
           "customPluginLimit" : {
             "type" : "integer",
-            "description" : "number of custom plugins a company is allowed to register",
+            "description" : "number of custom plugins a company is allowed to register.",
             "format" : "int64"
+          },
+          "ipAllowListingSettings" : {
+            "$ref" : "#/components/schemas/organization.IPAllowListingSettings"
           },
           "isOrganizationSamlOnly" : {
             "type" : "boolean",
@@ -8660,7 +8734,8 @@
             "writeOnly" : true,
             "deprecated" : true,
             "items" : {
-              "type" : "string"
+              "type" : "string",
+              "deprecated" : true
             }
           },
           "provider" : {
@@ -8797,10 +8872,18 @@
           "organization" : {
             "$ref" : "#/components/schemas/organization.Organization"
           },
+          "permissions" : {
+            "type" : "array",
+            "description" : "Permissions the User has in this organization.",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "PERMISSION_UNKNOWN", "ORG_BILLING_VIEW", "ORG_BILLING_EDIT", "ORG_MEMBER_VIEW", "ORG_TEAMS_MANAGE", "ORG_TEAM_VIEW_ALL", "ORG_AUDIT_VIEW", "ORG_ADMIN_ACCESS", "APP_VIEW_ALL", "APP_POLICY_MANAGE", "INTEGRATION_MANAGE", "HTTP_BROKER_MANAGE", "REPORT_VIEW_ADVANCED", "ROLE_EDIT_MEMBER", "ROLE_EDIT_ADMIN", "ROLE_EDIT_OWNER", "ROLE_ASSIGN_MEMBER", "ROLE_ASSIGN_ADMIN", "ROLE_ASSIGN_OWNER", "ROLE_EDIT_TEAM_ADMIN", "ROLE_ASSIGN_TEAM_ADMIN", "RECEIVE_HAWKAI_EMAILS" ]
+            }
+          },
           "role" : {
             "type" : "string",
             "description" : "The organization role the user belongs to within this organization.",
-            "enum" : [ "UNKNOWN", "OWNER", "ADMIN", "MEMBER" ]
+            "enum" : [ "UNKNOWN", "OWNER", "ADMIN", "MEMBER", "TEAM_ADMIN" ]
           }
         },
         "description" : "Represents the relationship between a User and an Organization they belong to."
@@ -8943,7 +9026,8 @@
             "type" : "object",
             "additionalProperties" : {
               "type" : "integer",
-              "format" : "int32"
+              "format" : "int32",
+              "deprecated" : true
             },
             "description" : "A map of finding counts by severity (\"High\" \"Medium\" \"Low\")",
             "deprecated" : false
@@ -9085,7 +9169,8 @@
             "type" : "object",
             "additionalProperties" : {
               "type" : "integer",
-              "format" : "int32"
+              "format" : "int32",
+              "deprecated" : true
             },
             "description" : "Recordings of scan counts made by severity and statistic.",
             "deprecated" : false
@@ -9210,7 +9295,8 @@
             "type" : "object",
             "additionalProperties" : {
               "type" : "integer",
-              "format" : "int64"
+              "format" : "int64",
+              "deprecated" : true
             },
             "description" : "",
             "deprecated" : false
@@ -9230,7 +9316,8 @@
             "type" : "object",
             "additionalProperties" : {
               "type" : "integer",
-              "format" : "int64"
+              "format" : "int64",
+              "deprecated" : true
             },
             "description" : "",
             "deprecated" : false
