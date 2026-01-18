@@ -835,10 +835,7 @@ pub fn complete_user_emails() -> Vec<CompletionCandidate> {
     for user in users.iter().take(MAX_COMPLETIONS) {
         // User data is nested under external field
         let ext = &user.external;
-        let display_name = ext
-            .full_name
-            .as_deref()
-            .unwrap_or(&ext.email);
+        let display_name = ext.full_name.as_deref().unwrap_or(&ext.email);
         // Email with name as help
         completion_data.push((ext.email.clone(), display_name.to_string()));
         // User ID with name as help (for advanced users)

@@ -1,9 +1,9 @@
 # StackHawk API Reference for HawkOp
 
-> **Last Updated**: 2026-01-17
+> **Last Updated**: 2026-01-18
 > **OpenAPI Spec Version**: 3.0.1
 > **HawkOp Version**: 0.4.0
-> **Total Endpoints**: 51 | **Implemented**: 14 (~27%)
+> **Total Endpoints**: 51 | **Implemented**: 20 (~39%)
 
 ---
 
@@ -212,14 +212,22 @@ Organization (org)
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
 | ✅ | GET | `/api/v1/org/{orgId}/teams` | `team list` | List all teams |
-| 🔲 | GET | `/api/v1/org/{orgId}/team/{teamId}` | - | Get team details |
-| 🔲 | POST | `/api/v1/org/{orgId}/team` | - | Create team |
-| 🔲 | PUT | `/api/v1/org/{orgId}/team/{teamId}` | - | Update team |
-| 🔲 | DELETE | `/api/v1/org/{orgId}/team/{teamId}` | - | Delete team |
-| 🔲 | PUT | `/api/v1/org/{orgId}/team/{teamId}/application` | - | Assign app to team |
+| ✅ | GET | `/api/v1/org/{orgId}/team/{teamId}` | `team get` | Get team details |
+| ✅ | POST | `/api/v1/org/{orgId}/team` | `team create` | Create team |
+| ✅ | PUT | `/api/v1/org/{orgId}/team/{teamId}` | `team update` | Update team |
+| ✅ | DELETE | `/api/v1/org/{orgId}/team/{teamId}` | `team delete` | Delete team |
+| ✅ | PUT | `/api/v1/org/{orgId}/team/{teamId}/application` | `team add-app/remove-app/set-apps` | Assign app to team |
 | 🔲 | GET | `/api/v1/org/{orgId}/user/{userId}/teams` | - | User's teams |
 
 **Team fields**: `teamId`, `name`, `applications[]`, `users[]`
+
+**Implemented features**:
+- Full CRUD: create, get, update, delete teams
+- Member management: add-user, remove-user, set-users (SCIM sync)
+- App assignment: add-app, remove-app, set-apps
+- Flexible identifier resolution (name or UUID)
+- Dry-run mode for all mutating operations
+- Shell completions for team names, user emails, app names
 
 ---
 
@@ -326,9 +334,9 @@ See `CLAUDE.md` → "Adding New Commands" for detailed patterns.
 - **`findings`** - Organization-wide findings report
 
 ### Medium Value
-- **`team create/manage`** - Team administration
 - **`policy assign`** - Assign policies to apps
 - **`env create/delete`** - Environment management
+- **`user teams`** - List teams for a specific user
 
 ### Lower Priority
 - **`repo sensitive`** - View sensitive data in repos

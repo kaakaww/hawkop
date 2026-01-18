@@ -10,7 +10,9 @@ use log::debug;
 
 use crate::cache::CachedStackHawkClient;
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
-use crate::client::models::{Application, CreateTeamRequest, Team, TeamDetail, UpdateTeamRequest, User};
+use crate::client::models::{
+    Application, CreateTeamRequest, Team, TeamDetail, UpdateTeamRequest, User,
+};
 use crate::client::pagination::PaginationParams;
 use crate::client::{ListingApi, StackHawkClient, TeamApi, fetch_remaining_pages};
 use crate::error::Result;
@@ -50,7 +52,10 @@ async fn fetch_all_teams(client: Client, org_id: &str) -> Result<Vec<Team>> {
         .page_size(RESOLUTION_PAGE_SIZE)
         .page(0);
 
-    debug!("Fetching first page of teams (pageSize={})", RESOLUTION_PAGE_SIZE);
+    debug!(
+        "Fetching first page of teams (pageSize={})",
+        RESOLUTION_PAGE_SIZE
+    );
     let first_response = client.list_teams_paged(org_id, Some(&first_params)).await?;
 
     let mut all_teams = first_response.items;
@@ -109,7 +114,10 @@ async fn fetch_all_users(client: Client, org_id: &str) -> Result<Vec<User>> {
         .page_size(RESOLUTION_PAGE_SIZE)
         .page(0);
 
-    debug!("Fetching first page of users (pageSize={})", RESOLUTION_PAGE_SIZE);
+    debug!(
+        "Fetching first page of users (pageSize={})",
+        RESOLUTION_PAGE_SIZE
+    );
     let first_response = client.list_users_paged(org_id, Some(&first_params)).await?;
 
     let mut all_users = first_response.items;
@@ -168,7 +176,10 @@ async fn fetch_all_apps(client: Client, org_id: &str) -> Result<Vec<Application>
         .page_size(RESOLUTION_PAGE_SIZE)
         .page(0);
 
-    debug!("Fetching first page of apps (pageSize={})", RESOLUTION_PAGE_SIZE);
+    debug!(
+        "Fetching first page of apps (pageSize={})",
+        RESOLUTION_PAGE_SIZE
+    );
     let first_response = client.list_apps_paged(org_id, Some(&first_params)).await?;
 
     let mut all_apps = first_response.items;
@@ -280,11 +291,7 @@ async fn resolve_users(
 }
 
 /// Resolve app identifiers (name or UUID) to UUIDs
-async fn resolve_apps(
-    client: Client,
-    org_id: &str,
-    identifiers: &[String],
-) -> Result<Vec<String>> {
+async fn resolve_apps(client: Client, org_id: &str, identifiers: &[String]) -> Result<Vec<String>> {
     if identifiers.is_empty() {
         return Ok(vec![]);
     }
@@ -431,9 +438,9 @@ pub async fn list(
     pagination: &PaginationArgs,
     no_cache: bool,
 ) -> Result<()> {
-    use futures::stream::{FuturesUnordered, StreamExt};
     use crate::models::TeamListDisplay;
     use crate::output::Formattable;
+    use futures::stream::{FuturesUnordered, StreamExt};
 
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
@@ -450,7 +457,8 @@ pub async fn list(
     };
 
     if teams.is_empty() {
-        eprintln!("No teams found");
+        eprintln!("No teams found.");
+        eprintln!("→ Create a team: hawkop team create <NAME>");
         return Ok(());
     }
 
@@ -661,6 +669,7 @@ pub async fn update(
                 current_team.name,
                 team.name
             );
+            eprintln!("→ View team: hawkop team get {}", team.id);
         }
     }
 
@@ -745,6 +754,7 @@ pub async fn delete(
         }
         _ => {
             eprintln!("{} Team \"{}\" deleted", "✓".green(), team.name);
+            eprintln!("→ List teams: hawkop team list");
         }
     }
 
@@ -866,6 +876,7 @@ pub async fn add_user(
                 users_to_add.len(),
                 updated.name
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
@@ -975,6 +986,7 @@ pub async fn remove_user(
                 actually_removing,
                 updated.name
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
@@ -1101,6 +1113,7 @@ pub async fn set_users(
                 to_remove.len(),
                 unchanged.len()
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
@@ -1214,6 +1227,7 @@ pub async fn add_app(
                 apps_to_add.len(),
                 updated.name
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
@@ -1323,6 +1337,7 @@ pub async fn remove_app(
                 actually_removing,
                 updated.name
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
@@ -1443,8 +1458,79 @@ pub async fn set_apps(
                 to_remove.len(),
                 unchanged.len()
             );
+            eprintln!("→ View team: hawkop team get {}", updated.id);
         }
     }
 
     Ok(())
+}
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // looks_like_uuid tests
+    // ========================================================================
+
+    #[test]
+    fn test_looks_like_uuid_valid() {
+        assert!(looks_like_uuid("550e8400-e29b-41d4-a716-446655440000"));
+        assert!(looks_like_uuid("00000000-0000-0000-0000-000000000000"));
+        assert!(looks_like_uuid("ABCDEF01-2345-6789-ABCD-EF0123456789"));
+    }
+
+    #[test]
+    fn test_looks_like_uuid_invalid() {
+        // Not enough parts
+        assert!(!looks_like_uuid("550e8400-e29b-41d4-a716"));
+        // Too many parts
+        assert!(!looks_like_uuid(
+            "550e8400-e29b-41d4-a716-446655440000-extra"
+        ));
+        // Not hex characters
+        assert!(!looks_like_uuid("550e8400-e29b-41d4-a716-44665544000g"));
+        // No dashes
+        assert!(!looks_like_uuid("550e8400e29b41d4a716446655440000"));
+        // Empty string
+        assert!(!looks_like_uuid(""));
+        // Team name
+        assert!(!looks_like_uuid("Security Team"));
+        // Email address
+        assert!(!looks_like_uuid("user@example.com"));
+    }
+
+    #[test]
+    fn test_looks_like_uuid_edge_cases() {
+        // Single dash (not UUID format)
+        assert!(!looks_like_uuid("team-name"));
+        // Mixed case is fine for UUID
+        assert!(looks_like_uuid("550E8400-e29B-41d4-A716-446655440000"));
+    }
+
+    // ========================================================================
+    // read_stdin_lines tests
+    // ========================================================================
+
+    // Note: read_stdin_lines is difficult to unit test as it reads from actual stdin.
+    // Integration testing would use echo piped to the CLI.
+
+    // ========================================================================
+    // Integration test notes
+    // ========================================================================
+
+    // The resolve_team, resolve_users, and resolve_apps functions require a full
+    // CachedStackHawkClient<StackHawkClient> which makes unit testing complex.
+    // These functions are best tested through:
+    // 1. Integration tests with the actual CLI
+    // 2. End-to-end tests against a test organization
+    //
+    // The functions are covered by the following manual test scenarios:
+    // - `hawkop team get "Security Team"` (name resolution)
+    // - `hawkop team get <UUID>` (UUID passthrough)
+    // - `hawkop team add-user "Team" user@example.com` (email resolution)
 }
