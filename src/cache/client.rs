@@ -703,6 +703,21 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + 'static> TeamApi
         Ok(result)
     }
 
+    /// Get team details, bypassing the cache entirely.
+    ///
+    /// Use this before mutations to ensure you're working with the latest data.
+    /// The result is still cached for subsequent reads.
+    async fn get_team_fresh(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        log::debug!("Bypassing cache for get_team_fresh");
+        let result = self.inner.get_team(org_id, team_id).await?;
+
+        // Still cache the fresh result for subsequent reads
+        let key = cache_key("get_team", Some(org_id), &[("team_id", team_id)]);
+        self.set_cached(&key, &result, "get_team", Some(org_id), CacheTtl::TEAMS);
+
+        Ok(result)
+    }
+
     /// Create team - invalidates cache after creation
     async fn create_team(&self, org_id: &str, request: CreateTeamRequest) -> Result<TeamDetail> {
         let result = self.inner.create_team(org_id, request).await?;

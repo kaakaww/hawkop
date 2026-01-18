@@ -27,7 +27,17 @@ pub trait TeamApi: Send + Sync {
     /// Get detailed team information including members and applications.
     ///
     /// Returns the full team record with nested users and applications.
+    /// May return cached data if caching is enabled.
     async fn get_team(&self, org_id: &str, team_id: &str) -> Result<TeamDetail>;
+
+    /// Get team details, bypassing the cache.
+    ///
+    /// Use this before mutations to ensure you're working with the latest data.
+    /// The default implementation just calls `get_team()` since only the
+    /// cached wrapper needs special handling.
+    async fn get_team_fresh(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        self.get_team(org_id, team_id).await
+    }
 
     // ========================================================================
     // Write Operations

@@ -34,7 +34,7 @@ impl CacheTtl {
     pub const APPS: Duration = Duration::from_secs(60 * 60); // 1 hr
     pub const ORGS: Duration = Duration::from_secs(60 * 60); // 1 hr
     pub const USERS: Duration = Duration::from_secs(60 * 60); // 1 hr
-    pub const TEAMS: Duration = Duration::from_secs(60 * 60); // 1 hr
+    pub const TEAMS: Duration = Duration::from_secs(60); // 1 min - teams change frequently via CRUD
     pub const POLICIES: Duration = Duration::from_secs(60 * 60); // 1 hr
 
     // Other data

@@ -608,8 +608,8 @@ pub async fn update(
     // Resolve team ID
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
 
-    // Get current team for display
-    let current_team = client.get_team(&org_id, &team_id).await?;
+    // Get current team for display - use fresh read to ensure we have latest state before mutation
+    let current_team = client.get_team_fresh(&org_id, &team_id).await?;
 
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
@@ -683,9 +683,9 @@ pub async fn delete(
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
-    // Resolve team ID and get details
+    // Resolve team ID and get details - use fresh read to ensure we have latest state before deletion
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
@@ -781,9 +781,9 @@ pub async fn add_user(
         ));
     }
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve user IDs
     let new_user_ids = resolve_users(client.clone(), &org_id, &users).await?;
@@ -890,9 +890,9 @@ pub async fn remove_user(
         ));
     }
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve user IDs to remove
     let remove_ids: HashSet<_> = resolve_users(client.clone(), &org_id, &users)
@@ -1001,9 +1001,9 @@ pub async fn set_users(
         users.extend(read_stdin_lines()?);
     }
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve new user IDs
     let new_user_ids: HashSet<_> = resolve_users(client.clone(), &org_id, &users)
@@ -1129,9 +1129,9 @@ pub async fn add_app(
         ));
     }
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve app IDs
     let new_app_ids = resolve_apps(client.clone(), &org_id, &apps).await?;
@@ -1238,9 +1238,9 @@ pub async fn remove_app(
         ));
     }
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve app IDs to remove
     let remove_ids: HashSet<_> = resolve_apps(client.clone(), &org_id, &apps)
@@ -1343,9 +1343,9 @@ pub async fn set_apps(
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
-    // Resolve team ID and get current state
+    // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
-    let team = client.get_team(&org_id, &team_id).await?;
+    let team = client.get_team_fresh(&org_id, &team_id).await?;
 
     // Resolve new app IDs
     let new_app_ids: HashSet<_> = resolve_apps(client.clone(), &org_id, &apps)
