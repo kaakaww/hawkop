@@ -9,11 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
-use crate::client::api::{AuthApi, ListingApi, ScanDetailApi};
+use crate::client::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
 use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanResult, Secret,
-    StackHawkPolicy, Team, User,
+    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig,
+    ScanResult, Secret, StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest,
+    UpdateTeamRequest, User,
 };
 use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
@@ -95,6 +96,29 @@ impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
             tokio::task::spawn_blocking(move || {
                 if let Ok(guard) = cache.lock() {
                     let _ = guard.put(&key, &json, &endpoint, org_id.as_deref(), ttl);
+                }
+            });
+        }
+    }
+
+    /// Invalidate all team-related cache entries for an organization.
+    ///
+    /// Called after team mutations (create, update, delete, member changes)
+    /// to ensure subsequent reads return fresh data.
+    fn invalidate_team_cache(&self, org_id: &str) {
+        if let Some(ref cache) = self.cache {
+            let cache = cache.clone();
+            let org_id = org_id.to_string();
+
+            // Fire-and-forget: don't block waiting for cache clear
+            tokio::task::spawn_blocking(move || {
+                if let Ok(guard) = cache.lock() {
+                    // Clear all team list caches (list_teams, list_teams_paged)
+                    let _ = guard.delete_by_endpoint("list_teams", Some(&org_id));
+                    let _ = guard.delete_by_endpoint("list_teams_paged", Some(&org_id));
+                    // Clear all team detail caches
+                    let _ = guard.delete_by_endpoint("get_team", Some(&org_id));
+                    log::debug!("Invalidated team cache for org {}", org_id);
                 }
             });
         }
@@ -352,6 +376,56 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
         Ok(result)
     }
 
+    async fn list_users_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<User>> {
+        let params = pagination_to_params(pagination);
+        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let key = cache_key("list_users_paged", Some(org_id), &params_ref);
+
+        if let Some(cached) = self.get_cached(&key).await {
+            log::debug!("Cache hit: list_users_paged");
+            return Ok(cached);
+        }
+
+        let result = self.inner.list_users_paged(org_id, pagination).await?;
+        self.set_cached(
+            &key,
+            &result,
+            "list_users_paged",
+            Some(org_id),
+            CacheTtl::USERS,
+        );
+        Ok(result)
+    }
+
+    async fn list_teams_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<Team>> {
+        let params = pagination_to_params(pagination);
+        let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let key = cache_key("list_teams_paged", Some(org_id), &params_ref);
+
+        if let Some(cached) = self.get_cached(&key).await {
+            log::debug!("Cache hit: list_teams_paged");
+            return Ok(cached);
+        }
+
+        let result = self.inner.list_teams_paged(org_id, pagination).await?;
+        self.set_cached(
+            &key,
+            &result,
+            "list_teams_paged",
+            Some(org_id),
+            CacheTtl::TEAMS,
+        );
+        Ok(result)
+    }
+
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
         let key = cache_key("list_stackhawk_policies", None, &[]);
 
@@ -604,6 +678,69 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for Cached
             CacheTtl::SCAN_DETAIL_COMPLETED,
         );
         Ok(result)
+    }
+}
+
+// ============================================================================
+// TeamApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + 'static> TeamApi
+    for CachedStackHawkClient<C>
+{
+    /// Get team details - cached with short TTL since team membership changes
+    async fn get_team(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        let key = cache_key("get_team", Some(org_id), &[("team_id", team_id)]);
+
+        if let Some(cached) = self.get_cached(&key).await {
+            log::debug!("Cache hit: get_team");
+            return Ok(cached);
+        }
+
+        let result = self.inner.get_team(org_id, team_id).await?;
+        self.set_cached(&key, &result, "get_team", Some(org_id), CacheTtl::TEAMS);
+        Ok(result)
+    }
+
+    /// Create team - invalidates cache after creation
+    async fn create_team(&self, org_id: &str, request: CreateTeamRequest) -> Result<TeamDetail> {
+        let result = self.inner.create_team(org_id, request).await?;
+        self.invalidate_team_cache(org_id);
+        Ok(result)
+    }
+
+    /// Update team - invalidates cache after update
+    async fn update_team(
+        &self,
+        org_id: &str,
+        team_id: &str,
+        request: UpdateTeamRequest,
+    ) -> Result<TeamDetail> {
+        let result = self.inner.update_team(org_id, team_id, request).await?;
+        self.invalidate_team_cache(org_id);
+        Ok(result)
+    }
+
+    /// Delete team - invalidates cache after deletion
+    async fn delete_team(&self, org_id: &str, team_id: &str) -> Result<()> {
+        self.inner.delete_team(org_id, team_id).await?;
+        self.invalidate_team_cache(org_id);
+        Ok(())
+    }
+
+    /// Assign app to team - invalidates cache after assignment change
+    async fn assign_app_to_team(
+        &self,
+        org_id: &str,
+        team_id: &str,
+        request: UpdateApplicationTeamRequest,
+    ) -> Result<()> {
+        self.inner
+            .assign_app_to_team(org_id, team_id, request)
+            .await?;
+        self.invalidate_team_cache(org_id);
+        Ok(())
     }
 }
 

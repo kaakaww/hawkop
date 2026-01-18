@@ -27,4 +27,4 @@ pub use policy::PolicyDisplay;
 pub use repo::RepoDisplay;
 pub use scan::ScanDisplay;
 pub use secret::SecretDisplay;
-pub use user::{TeamDisplay, UserDisplay};
+pub use user::{TeamListDisplay, UserDisplay};

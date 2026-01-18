@@ -427,6 +427,52 @@ impl ListingApi for MockStackHawkClient {
         Ok(self.teams.lock().await.clone())
     }
 
+    async fn list_users_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<User>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_users += 1;
+
+        let users = self.users.lock().await.clone();
+        let total_count = users.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(
+            users,
+            Some(total_count),
+            page_size,
+            page_idx,
+        ))
+    }
+
+    async fn list_teams_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<Team>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_teams += 1;
+
+        let teams = self.teams.lock().await.clone();
+        let total_count = teams.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(
+            teams,
+            Some(total_count),
+            page_size,
+            page_idx,
+        ))
+    }
+
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
         self.check_error().await?;
 

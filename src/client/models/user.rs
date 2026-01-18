@@ -10,6 +10,127 @@ pub struct User {
     pub external: UserExternal,
 }
 
+// ============================================================================
+// Team Detail Models (for CRUD operations)
+// ============================================================================
+
+/// Full team detail including members and applications.
+///
+/// This is returned by the get team endpoint and contains the complete
+/// team information with nested users and applications.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDetail {
+    /// Team ID (UUID)
+    pub id: String,
+
+    /// Team name
+    pub name: String,
+
+    /// Organization ID that owns this team
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
+
+    /// Users who are members of this team
+    #[serde(default)]
+    pub users: Vec<TeamUser>,
+
+    /// Applications assigned to this team
+    #[serde(default)]
+    pub applications: Vec<TeamApplication>,
+}
+
+/// A user who is a member of a team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamUser {
+    /// User ID (UUID)
+    pub user_id: String,
+
+    /// User's display name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
+
+    /// User's email address
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+
+    /// User's role in the team (e.g., "ADMIN", "MEMBER")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+/// An application assigned to a team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamApplication {
+    /// Application ID (UUID)
+    pub application_id: String,
+
+    /// Application name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_name: Option<String>,
+
+    /// Application environments
+    #[serde(default)]
+    pub environments: Vec<String>,
+}
+
+// ============================================================================
+// Team Request Models (for create/update operations)
+// ============================================================================
+
+/// Request to create a new team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTeamRequest {
+    /// Team name
+    pub name: String,
+
+    /// Organization ID
+    pub organization_id: String,
+
+    /// Initial member user IDs (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_ids: Option<Vec<String>>,
+
+    /// Initial application IDs (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_ids: Option<Vec<String>>,
+}
+
+/// Request to update an existing team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTeamRequest {
+    /// Team ID (required for update)
+    pub team_id: String,
+
+    /// Updated team name (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// Updated list of member user IDs (replaces existing)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_ids: Option<Vec<String>>,
+
+    /// Updated list of application IDs (replaces existing)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_ids: Option<Vec<String>>,
+}
+
+/// Request to assign an application to a team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub struct UpdateApplicationTeamRequest {
+    /// Application ID to assign
+    pub application_id: String,
+
+    /// Team ID to assign the application to
+    pub team_id: String,
+}
+
 /// User details from the external field in API response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

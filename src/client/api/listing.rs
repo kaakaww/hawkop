@@ -82,12 +82,30 @@ pub trait ListingApi: Send + Sync {
         pagination: Option<&PaginationParams>,
     ) -> Result<Vec<User>>;
 
+    /// List users with pagination metadata for parallel fetching.
+    ///
+    /// Returns `PagedResponse` with `total_count` for calculating remaining pages.
+    async fn list_users_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<User>>;
+
     /// List teams for an organization with optional pagination
     async fn list_teams(
         &self,
         org_id: &str,
         pagination: Option<&PaginationParams>,
     ) -> Result<Vec<Team>>;
+
+    /// List teams with pagination metadata for parallel fetching.
+    ///
+    /// Returns `PagedResponse` with `total_count` for calculating remaining pages.
+    async fn list_teams_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<Team>>;
 
     // ========================================================================
     // Policies

@@ -706,3 +706,169 @@ pub fn plugin_id_candidates() -> ArgValueCandidates {
 pub fn uri_id_candidates() -> ArgValueCandidates {
     ArgValueCandidates::new(complete_uri_ids)
 }
+
+/// Complete team names/IDs with metadata.
+///
+/// Format: `{team_name}` with help `ID: {team_id}`
+/// Also offers completion by team ID with name as help text.
+///
+/// Note: clap_complete handles prefix filtering - we return all candidates.
+pub fn complete_team_names() -> Vec<CompletionCandidate> {
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    // Try cache first
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_team_names", Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - need full context for API call
+    let Some((_, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_teams(org_id, None)).await
+    });
+
+    let teams = match result {
+        Ok(Ok(teams)) => teams,
+        _ => return vec![],
+    };
+
+    // Build completion data - offer both name and ID as completable values
+    let mut completion_data: Vec<(String, String)> = Vec::new();
+    for team in teams.iter().take(MAX_COMPLETIONS) {
+        // Team name with ID as help
+        completion_data.push((team.name.clone(), format!("ID: {}", team.id)));
+        // Team ID with name as help
+        completion_data.push((team.id.clone(), team.name.clone()));
+    }
+
+    // Cache the results
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "teams",
+            Some(org_id),
+            CacheTtl::TEAMS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
+        .collect()
+}
+
+/// Complete user emails/IDs with metadata.
+///
+/// Format: `{email}` with help `{name}`
+/// Also offers completion by user ID with name as help text.
+///
+/// Note: clap_complete handles prefix filtering - we return all candidates.
+pub fn complete_user_emails() -> Vec<CompletionCandidate> {
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    // Try cache first
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_user_emails", Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(email, help)| CompletionCandidate::new(email).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    // Cache miss - need full context for API call
+    let Some((_, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_users(org_id, None)).await
+    });
+
+    let users = match result {
+        Ok(Ok(users)) => users,
+        _ => return vec![],
+    };
+
+    // Build completion data - offer both email and ID as completable values
+    let mut completion_data: Vec<(String, String)> = Vec::new();
+    for user in users.iter().take(MAX_COMPLETIONS) {
+        // User data is nested under external field
+        let ext = &user.external;
+        let display_name = ext
+            .full_name
+            .as_deref()
+            .unwrap_or(&ext.email);
+        // Email with name as help
+        completion_data.push((ext.email.clone(), display_name.to_string()));
+        // User ID with name as help (for advanced users)
+        completion_data.push((ext.id.clone(), format!("{} ({})", display_name, &ext.email)));
+    }
+
+    // Cache the results
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "users",
+            Some(org_id),
+            CacheTtl::USERS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(email, help)| CompletionCandidate::new(email).help(Some(help.into())))
+        .collect()
+}
+
+/// Create completion candidates for team names/IDs.
+pub fn team_name_candidates() -> ArgValueCandidates {
+    ArgValueCandidates::new(complete_team_names)
+}
+
+/// Create completion candidates for user emails/IDs.
+pub fn user_email_candidates() -> ArgValueCandidates {
+    ArgValueCandidates::new(complete_user_emails)
+}

@@ -155,6 +155,164 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
+            TeamCommands::Get { team, format } => {
+                cli::team::get(
+                    format, // Use command-level format (defaults to pretty)
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::Create {
+                name,
+                users,
+                dry_run,
+            } => {
+                cli::team::create(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &name,
+                    users,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::Delete { team, yes, dry_run } => {
+                cli::team::delete(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    yes,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::Update {
+                team,
+                name,
+                dry_run,
+            } => {
+                cli::team::update(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    &name,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::AddUser {
+                team,
+                users,
+                stdin,
+                dry_run,
+            } => {
+                cli::team::add_user(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    users,
+                    stdin,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::RemoveUser {
+                team,
+                users,
+                dry_run,
+            } => {
+                cli::team::remove_user(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    users,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::SetUsers {
+                team,
+                users,
+                stdin,
+                dry_run,
+                yes,
+            } => {
+                cli::team::set_users(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    users,
+                    stdin,
+                    dry_run,
+                    yes,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::AddApp {
+                team,
+                apps,
+                dry_run,
+            } => {
+                cli::team::add_app(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    apps,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::RemoveApp {
+                team,
+                apps,
+                dry_run,
+            } => {
+                cli::team::remove_app(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    apps,
+                    dry_run,
+                    cli.no_cache,
+                )
+                .await
+            }
+            TeamCommands::SetApps {
+                team,
+                apps,
+                dry_run,
+                yes,
+            } => {
+                cli::team::set_apps(
+                    cli.format,
+                    cli.org.as_deref(),
+                    cli.config.as_deref(),
+                    &team,
+                    apps,
+                    dry_run,
+                    yes,
+                    cli.no_cache,
+                )
+                .await
+            }
         },
         Commands::Policy(policy_cmd) => match policy_cmd {
             PolicyCommands::List { pagination } => {

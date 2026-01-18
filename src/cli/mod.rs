@@ -4,7 +4,8 @@ use clap::{Parser, Subcommand};
 pub use clap_complete::Shell;
 
 use completions::{
-    app_name_candidates, plugin_id_candidates, scan_id_candidates, uri_id_candidates,
+    app_name_candidates, plugin_id_candidates, scan_id_candidates, team_name_candidates,
+    uri_id_candidates, user_email_candidates,
 };
 
 pub mod app;
@@ -38,12 +39,12 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Output format (table, json)
+    /// Output format (pretty, table, json)
     #[arg(
         long,
         global = true,
         env = "HAWKOP_FORMAT",
-        default_value = "table",
+        default_value = "pretty",
         hide_env = true,
         hide_possible_values = true
     )]
@@ -249,9 +250,205 @@ pub enum UserCommands {
 #[derive(Subcommand, Debug)]
 pub enum TeamCommands {
     /// List organization teams
+    #[command(
+        visible_alias = "ls",
+        after_help = "EXAMPLES:\n  \
+            hawkop team list                    # List all teams\n  \
+            hawkop team list --format json      # JSON for scripting\n  \
+            hawkop team list | grep Security    # Filter by name"
+    )]
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+    },
+
+    /// Get team details with members and applications
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team get \"Security Team\"   # By name\n  \
+            hawkop team get abc123              # By ID\n  \
+            hawkop team get abc123 --format json | jq '.data.users'")]
+    Get {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+
+        /// Output format: pretty (default), table, json
+        #[arg(long, short = 'o', default_value = "pretty")]
+        format: OutputFormat,
+    },
+
+    /// Create a new team
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team create \"New Team\"                         # Empty team\n  \
+            hawkop team create \"Dev Team\" --users alice@ex.com    # With initial member\n  \
+            hawkop team create \"Test\" --dry-run                   # Preview only")]
+    Create {
+        /// Team name
+        name: String,
+        /// Initial members (email or user ID), comma-separated or repeated
+        #[arg(long, short = 'u', value_delimiter = ',')]
+        users: Option<Vec<String>>,
+        /// Preview without creating
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Delete a team
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team delete \"Old Team\"     # With confirmation\n  \
+            hawkop team delete abc123 --yes    # Skip confirmation\n  \
+            hawkop team delete abc123 --dry-run # Preview what would happen")]
+    Delete {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Preview without deleting
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Update team name
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team update \"Old Name\" --name \"New Name\"\n  \
+            hawkop team update abc123 --name \"Renamed\" --dry-run")]
+    Update {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// New team name
+        #[arg(long)]
+        name: String,
+        /// Preview without updating
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Add users to a team
+    #[command(
+        visible_alias = "add-member",
+        after_help = "EXAMPLES:\n  \
+            hawkop team add-user \"Security\" alice@ex.com\n  \
+            hawkop team add-user abc123 user1@ex.com,user2@ex.com\n  \
+            cat users.txt | hawkop team add-user \"Team\" --stdin\n  \
+            hawkop team add-user \"Team\" alice@ex.com --dry-run"
+    )]
+    AddUser {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Users to add (email or user ID), comma-separated or repeated
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = user_email_candidates())]
+        users: Vec<String>,
+        /// Read users from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
+        /// Preview without adding
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Remove users from a team
+    #[command(
+        visible_alias = "remove-member",
+        after_help = "EXAMPLES:\n  \
+            hawkop team remove-user \"Security\" alice@ex.com\n  \
+            hawkop team remove-user abc123 user1@ex.com --dry-run"
+    )]
+    RemoveUser {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Users to remove (email or user ID), comma-separated or repeated
+        #[arg(value_delimiter = ',', add = user_email_candidates())]
+        users: Vec<String>,
+        /// Preview without removing
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Replace all team members (for SCIM sync)
+    #[command(
+        visible_alias = "sync-users",
+        after_help = "EXAMPLES:\n  \
+            hawkop team set-users \"Team\" alice@ex.com,bob@ex.com\n  \
+            cat members.txt | hawkop team set-users \"Team\" --stdin\n  \
+            hawkop team set-users \"Team\" --stdin --dry-run < idp-export.txt\n  \
+            hawkop team set-users \"Team\" a@ex.com,b@ex.com --yes  # No confirm"
+    )]
+    SetUsers {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Complete list of users (replaces existing), comma-separated or repeated
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = user_email_candidates())]
+        users: Vec<String>,
+        /// Read users from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
+        /// Preview changes without applying
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Assign applications to a team
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team add-app \"Security\" \"Web App\"\n  \
+            hawkop team add-app abc123 app-uuid-1 --dry-run")]
+    AddApp {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Applications to assign (name or ID), comma-separated or repeated
+        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        apps: Vec<String>,
+        /// Preview without assigning
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Remove applications from a team
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop team remove-app \"Security\" \"Old App\"\n  \
+            hawkop team remove-app abc123 app-uuid --dry-run")]
+    RemoveApp {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Applications to unassign (name or ID), comma-separated or repeated
+        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        apps: Vec<String>,
+        /// Preview without removing
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+    },
+
+    /// Replace all team application assignments
+    #[command(
+        visible_alias = "sync-apps",
+        after_help = "EXAMPLES:\n  \
+            hawkop team set-apps \"Team\" \"App1\",\"App2\"\n  \
+            hawkop team set-apps \"Team\" --dry-run app1,app2\n  \
+            hawkop team set-apps \"Team\" app1,app2 --yes"
+    )]
+    SetApps {
+        /// Team ID or name
+        #[arg(add = team_name_candidates())]
+        team: String,
+        /// Complete list of applications (replaces existing), comma-separated or repeated
+        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        apps: Vec<String>,
+        /// Preview changes without applying
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 

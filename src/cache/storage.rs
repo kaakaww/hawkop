@@ -186,6 +186,34 @@ impl CacheStorage {
         })
     }
 
+    /// Delete a specific cache entry by key
+    #[allow(dead_code)]
+    pub fn delete_by_key(&self, key: &str) -> Result<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM cache_entries WHERE cache_key = ?1", [key])?;
+        Ok(deleted > 0)
+    }
+
+    /// Delete cache entries by endpoint pattern and optional org_id
+    ///
+    /// Used to invalidate cache after mutations. For example:
+    /// - `delete_by_endpoint("list_teams", Some("org-123"))` - clears team list cache
+    /// - `delete_by_endpoint("get_team", Some("org-123"))` - clears all team detail caches
+    pub fn delete_by_endpoint(&self, endpoint: &str, org_id: Option<&str>) -> Result<usize> {
+        let deleted = match org_id {
+            Some(org) => self.conn.execute(
+                "DELETE FROM cache_entries WHERE endpoint = ?1 AND org_id = ?2",
+                params![endpoint, org],
+            )?,
+            None => self.conn.execute(
+                "DELETE FROM cache_entries WHERE endpoint = ?1",
+                params![endpoint],
+            )?,
+        };
+        Ok(deleted)
+    }
+
     /// Get cache statistics
     pub fn stats(&self) -> Result<CacheStats> {
         let now = Utc::now().timestamp();
