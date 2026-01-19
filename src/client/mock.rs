@@ -11,7 +11,7 @@ use super::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig,
-    ScanMessage, ScanResult, Secret, StackHawkPolicy, Team, TeamDetail,
+    ScanMessage, ScanResult, Secret, StackHawkPolicy, Team, TeamApplication, TeamDetail, TeamUser,
     UpdateApplicationTeamRequest, UpdateTeamRequest, User,
 };
 use super::pagination::{PagedResponse, PaginationParams, ScanFilterParams};
@@ -728,6 +728,31 @@ impl TeamApi for MockStackHawkClient {
         // Update the name if provided
         if let Some(name) = request.name {
             team.name = name;
+        }
+
+        // Update users if provided
+        if let Some(user_ids) = request.user_ids {
+            team.users = user_ids
+                .into_iter()
+                .map(|id| TeamUser {
+                    user_id: id.clone(),
+                    user_name: Some(format!("User {}", id)),
+                    email: Some(format!("user-{}@example.com", id)),
+                    role: Some("Member".to_string()),
+                })
+                .collect();
+        }
+
+        // Update applications if provided
+        if let Some(app_ids) = request.application_ids {
+            team.applications = app_ids
+                .into_iter()
+                .map(|id| TeamApplication {
+                    application_id: id.clone(),
+                    application_name: Some(format!("App {}", id)),
+                    environments: vec!["Development".to_string()],
+                })
+                .collect();
         }
 
         Ok(team.clone())

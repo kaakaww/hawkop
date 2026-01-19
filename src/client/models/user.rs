@@ -100,10 +100,15 @@ pub struct CreateTeamRequest {
 }
 
 /// Request to update an existing team.
+///
+/// Note: `team_id` is passed in the URL path, not the body.
+/// The API marks teamId and organizationId as readOnly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTeamRequest {
-    /// Team ID (required for update)
+    /// Team ID (for internal use - not serialized to request body)
+    #[serde(skip_serializing)]
+    #[allow(dead_code)]
     pub team_id: String,
 
     /// Updated team name (optional)

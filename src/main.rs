@@ -145,19 +145,23 @@ async fn run() -> Result<()> {
             }
         },
         Commands::Team(team_cmd) => match team_cmd {
-            TeamCommands::List { pagination } => {
+            TeamCommands::List {
+                pagination,
+                filters,
+            } => {
                 cli::team::list(
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &pagination,
+                    &filters,
                     cli.no_cache,
                 )
                 .await
             }
-            TeamCommands::Get { team, format } => {
+            TeamCommands::Get { team } => {
                 cli::team::get(
-                    format, // Use command-level format (defaults to pretty)
+                    cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
                     &team,
@@ -168,6 +172,7 @@ async fn run() -> Result<()> {
             TeamCommands::Create {
                 name,
                 users,
+                apps,
                 dry_run,
             } => {
                 cli::team::create(
@@ -176,6 +181,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &name,
                     users,
+                    apps,
                     dry_run,
                     cli.no_cache,
                 )
@@ -193,17 +199,17 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
-            TeamCommands::Update {
-                team,
-                name,
+            TeamCommands::Rename {
+                current,
+                new_name,
                 dry_run,
             } => {
-                cli::team::update(
+                cli::team::rename(
                     cli.format,
                     cli.org.as_deref(),
                     cli.config.as_deref(),
-                    &team,
-                    &name,
+                    &current,
+                    &new_name,
                     dry_run,
                     cli.no_cache,
                 )
@@ -230,6 +236,7 @@ async fn run() -> Result<()> {
             TeamCommands::RemoveUser {
                 team,
                 users,
+                stdin,
                 dry_run,
             } => {
                 cli::team::remove_user(
@@ -238,6 +245,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &team,
                     users,
+                    stdin,
                     dry_run,
                     cli.no_cache,
                 )
@@ -266,6 +274,7 @@ async fn run() -> Result<()> {
             TeamCommands::AddApp {
                 team,
                 apps,
+                stdin,
                 dry_run,
             } => {
                 cli::team::add_app(
@@ -274,6 +283,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &team,
                     apps,
+                    stdin,
                     dry_run,
                     cli.no_cache,
                 )
@@ -282,6 +292,7 @@ async fn run() -> Result<()> {
             TeamCommands::RemoveApp {
                 team,
                 apps,
+                stdin,
                 dry_run,
             } => {
                 cli::team::remove_app(
@@ -290,6 +301,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &team,
                     apps,
+                    stdin,
                     dry_run,
                     cli.no_cache,
                 )
@@ -298,6 +310,7 @@ async fn run() -> Result<()> {
             TeamCommands::SetApps {
                 team,
                 apps,
+                stdin,
                 dry_run,
                 yes,
             } => {
@@ -307,6 +320,7 @@ async fn run() -> Result<()> {
                     cli.config.as_deref(),
                     &team,
                     apps,
+                    stdin,
                     dry_run,
                     yes,
                     cli.no_cache,

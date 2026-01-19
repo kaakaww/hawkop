@@ -9,7 +9,7 @@ use dialoguer::Confirm;
 use log::debug;
 
 use crate::cache::CachedStackHawkClient;
-use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
+use crate::cli::{CommandContext, OutputFormat, PaginationArgs, TeamFilterArgs};
 use crate::client::models::{
     Application, CreateTeamRequest, Team, TeamDetail, UpdateTeamRequest, User,
 };
@@ -233,7 +233,8 @@ async fn fetch_all_apps(client: Client, org_id: &str) -> Result<Vec<Application>
 // Resolution Functions (use parallel fetching for enterprise scale)
 // ============================================================================
 
-/// Resolve team identifier (name or UUID) to UUID
+/// Resolve team identifier (name or UUID) to UUID.
+/// Errors if name matches multiple teams (safety for mutations).
 async fn resolve_team(client: Client, org_id: &str, identifier: &str) -> Result<String> {
     // If it's already a valid UUID, return it
     if looks_like_uuid(identifier) {
@@ -243,16 +244,32 @@ async fn resolve_team(client: Client, org_id: &str, identifier: &str) -> Result<
     // Fetch all teams with parallel pagination
     let teams = fetch_all_teams(client, org_id).await?;
 
-    teams
+    // Find ALL teams with matching name (case-insensitive)
+    let matches: Vec<_> = teams
         .iter()
-        .find(|t| t.name.eq_ignore_ascii_case(identifier))
-        .map(|t| t.id.clone())
-        .ok_or_else(|| {
-            crate::error::Error::Other(format!(
-                "Team not found: {}\n\nUse 'hawkop team list' to see available teams.",
-                identifier
-            ))
-        })
+        .filter(|t| t.name.eq_ignore_ascii_case(identifier))
+        .collect();
+
+    match matches.len() {
+        0 => Err(crate::error::Error::Other(format!(
+            "Team not found: {}\n\n→ Use 'hawkop team list' to see available teams.",
+            identifier
+        ))),
+        1 => Ok(matches[0].id.clone()),
+        _ => {
+            // Multiple teams with same name - error with IDs for disambiguation
+            let team_list = matches
+                .iter()
+                .map(|t| format!("  • {} (ID: {})", t.name, t.id))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            Err(crate::error::Error::Other(format!(
+                "Multiple teams found with name \"{}\". Use team ID instead:\n\n{}\n\n→ Example: hawkop team get {}",
+                identifier, team_list, matches[0].id
+            )))
+        }
+    }
 }
 
 /// Resolve user identifiers (email or UUID) to UUIDs
@@ -290,7 +307,8 @@ async fn resolve_users(
         .collect()
 }
 
-/// Resolve app identifiers (name or UUID) to UUIDs
+/// Resolve app identifiers (name or UUID) to UUIDs.
+/// Errors if name matches multiple apps (safety for mutations).
 async fn resolve_apps(client: Client, org_id: &str, identifiers: &[String]) -> Result<Vec<String>> {
     if identifiers.is_empty() {
         return Ok(vec![]);
@@ -306,16 +324,33 @@ async fn resolve_apps(client: Client, org_id: &str, identifiers: &[String]) -> R
             if looks_like_uuid(id) {
                 return Ok(id.clone());
             }
-            // Otherwise look up by name
-            apps.iter()
-                .find(|a| a.name.eq_ignore_ascii_case(id))
-                .map(|a| a.id.clone())
-                .ok_or_else(|| {
-                    crate::error::Error::Other(format!(
-                        "Application not found: {}\n\nUse 'hawkop app list' to see available applications.",
-                        id
-                    ))
-                })
+
+            // Find ALL apps with matching name (case-insensitive)
+            let matches: Vec<_> = apps
+                .iter()
+                .filter(|a| a.name.eq_ignore_ascii_case(id))
+                .collect();
+
+            match matches.len() {
+                0 => Err(crate::error::Error::Other(format!(
+                    "Application not found: {}\n\n→ Use 'hawkop app list' to see available applications.",
+                    id
+                ))),
+                1 => Ok(matches[0].id.clone()),
+                _ => {
+                    // Multiple apps with same name - error with IDs for disambiguation
+                    let app_list = matches
+                        .iter()
+                        .map(|a| format!("  • {} (ID: {})", a.name, a.id))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    Err(crate::error::Error::Other(format!(
+                        "Multiple applications found with name \"{}\". Use app ID instead:\n\n{}\n\n→ Example: hawkop team add-app \"Team\" {}",
+                        id, app_list, matches[0].id
+                    )))
+                }
+            }
         })
         .collect()
 }
@@ -436,6 +471,7 @@ pub async fn list(
     org_override: Option<&str>,
     config_path: Option<&str>,
     pagination: &PaginationArgs,
+    filters: &TeamFilterArgs,
     no_cache: bool,
 ) -> Result<()> {
     use crate::models::TeamListDisplay;
@@ -457,8 +493,14 @@ pub async fn list(
     };
 
     if teams.is_empty() {
-        eprintln!("No teams found.");
-        eprintln!("→ Create a team: hawkop team create <NAME>");
+        // For JSON format, return empty array with metadata
+        if matches!(format, OutputFormat::Json) {
+            let empty: Vec<TeamListDisplay> = vec![];
+            empty.print(format)?;
+        } else {
+            eprintln!("No teams found.");
+            eprintln!("→ Create a team: hawkop team create <NAME>");
+        }
         return Ok(());
     }
 
@@ -485,11 +527,68 @@ pub async fn list(
         }
     }
 
+    // Apply filters (client-side since API doesn't support them)
+    let filtered_details: Vec<TeamDetail> = team_details
+        .into_iter()
+        .filter(|team| {
+            // Name filter (substring match, case-insensitive)
+            if let Some(ref name_filter) = filters.name
+                && !team
+                    .name
+                    .to_lowercase()
+                    .contains(&name_filter.to_lowercase())
+            {
+                return false;
+            }
+
+            // Member filter (email match, case-insensitive)
+            if let Some(ref member_filter) = filters.member {
+                let has_member = team.users.iter().any(|u| {
+                    u.email
+                        .as_ref()
+                        .is_some_and(|e| e.eq_ignore_ascii_case(member_filter))
+                });
+                if !has_member {
+                    return false;
+                }
+            }
+
+            // App filter (app name match, case-insensitive)
+            if let Some(ref app_filter) = filters.app {
+                let has_app = team.applications.iter().any(|a| {
+                    a.application_name
+                        .as_ref()
+                        .is_some_and(|n| n.eq_ignore_ascii_case(app_filter))
+                });
+                if !has_app {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect();
+
+    if filtered_details.is_empty() {
+        // For JSON format, return empty array with metadata
+        if matches!(format, OutputFormat::Json) {
+            let empty: Vec<TeamListDisplay> = vec![];
+            empty.print(format)?;
+        } else if filters.name.is_some() || filters.member.is_some() || filters.app.is_some() {
+            eprintln!("No teams match the specified filters.");
+        } else {
+            eprintln!("No teams found.");
+            eprintln!("→ Create a team: hawkop team create <NAME>");
+        }
+        return Ok(());
+    }
+
     // Sort by name for consistent output
-    team_details.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    let mut sorted_details = filtered_details;
+    sorted_details.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     // Convert to display format
-    let display_items: Vec<TeamListDisplay> = team_details
+    let display_items: Vec<TeamListDisplay> = sorted_details
         .into_iter()
         .map(TeamListDisplay::from)
         .collect();
@@ -529,6 +628,7 @@ pub async fn get(
 // Create Command
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 /// Create a new team
 pub async fn create(
     format: OutputFormat,
@@ -536,14 +636,50 @@ pub async fn create(
     config_path: Option<&str>,
     name: &str,
     users: Option<Vec<String>>,
+    apps: Option<Vec<String>>,
     dry_run: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
+    // Validate non-empty name
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Team name cannot be empty.".to_string(),
+        ));
+    }
+
+    // Check for existing team with same name (before any other operations)
+    let existing_teams = fetch_all_teams(client.clone(), &org_id).await?;
+    let duplicates: Vec<_> = existing_teams
+        .iter()
+        .filter(|t| t.name.eq_ignore_ascii_case(name))
+        .collect();
+
+    if !duplicates.is_empty() {
+        let existing_list = duplicates
+            .iter()
+            .map(|t| format!("  • {} (ID: {})", t.name, t.id))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        return Err(crate::error::Error::Other(format!(
+            "A team named \"{}\" already exists:\n\n{}\n\n→ Choose a different name or rename the existing team.",
+            name, existing_list
+        )));
+    }
+
     // Resolve user IDs if provided
     let user_ids = if let Some(ref user_list) = users {
         Some(resolve_users(client.clone(), &org_id, user_list).await?)
+    } else {
+        None
+    };
+
+    // Resolve app IDs if provided
+    let app_ids = if let Some(ref app_list) = apps {
+        Some(resolve_apps(client.clone(), &org_id, app_list).await?)
     } else {
         None
     };
@@ -557,6 +693,11 @@ pub async fn create(
         {
             eprintln!("Initial members: {}", ids.len());
         }
+        if let Some(ref ids) = app_ids
+            && !ids.is_empty()
+        {
+            eprintln!("Initial applications: {}", ids.len());
+        }
         return Ok(());
     }
 
@@ -564,7 +705,7 @@ pub async fn create(
         name: name.to_string(),
         organization_id: org_id.clone(),
         user_ids,
-        application_ids: None,
+        application_ids: app_ids,
     };
 
     let team = client.create_team(&org_id, request).await?;
@@ -587,10 +728,7 @@ pub async fn create(
                 team.name,
                 team.id
             );
-            eprintln!(
-                "→ Add members: hawkop team add-user {} <USER_EMAILS>",
-                team.id
-            );
+            eprintln!("→ View team: hawkop team get {}", team.id);
         }
     }
 
@@ -598,11 +736,11 @@ pub async fn create(
 }
 
 // ============================================================================
-// Update Command
+// Rename Command
 // ============================================================================
 
-/// Update team name
-pub async fn update(
+/// Rename a team
+pub async fn rename(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
@@ -613,11 +751,41 @@ pub async fn update(
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
+    // Validate non-empty name
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Team name cannot be empty.".to_string(),
+        ));
+    }
+
     // Resolve team ID
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
 
     // Get current team for display - use fresh read to ensure we have latest state before mutation
     let current_team = client.get_team_fresh(&org_id, &team_id).await?;
+
+    // Check if new name already exists (skip if renaming to same name with different case)
+    if !current_team.name.eq_ignore_ascii_case(new_name) {
+        let existing_teams = fetch_all_teams(client.clone(), &org_id).await?;
+        let duplicates: Vec<_> = existing_teams
+            .iter()
+            .filter(|t| t.name.eq_ignore_ascii_case(new_name) && t.id != team_id)
+            .collect();
+
+        if !duplicates.is_empty() {
+            let existing_list = duplicates
+                .iter()
+                .map(|t| format!("  • {} (ID: {})", t.name, t.id))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            return Err(crate::error::Error::Other(format!(
+                "A team named \"{}\" already exists:\n\n{}\n\n→ Choose a different name.",
+                new_name, existing_list
+            )));
+        }
+    }
 
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
@@ -883,21 +1051,29 @@ pub async fn add_user(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Remove users from a team
 pub async fn remove_user(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
     team_identifier: &str,
-    users: Vec<String>,
+    mut users: Vec<String>,
+    stdin: bool,
     dry_run: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
+    // Read from stdin if requested
+    if stdin {
+        users.extend(read_stdin_lines()?);
+    }
+
     if users.is_empty() {
         return Err(crate::error::Error::Other(
-            "No users specified. Provide user emails or IDs as arguments.".to_string(),
+            "No users specified. Provide user emails or IDs as arguments or use --stdin."
+                .to_string(),
         ));
     }
 
@@ -1124,21 +1300,29 @@ pub async fn set_users(
 // Application Assignment Commands
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 /// Assign applications to a team
 pub async fn add_app(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
     team_identifier: &str,
-    apps: Vec<String>,
+    mut apps: Vec<String>,
+    stdin: bool,
     dry_run: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
+    // Read from stdin if requested
+    if stdin {
+        apps.extend(read_stdin_lines()?);
+    }
+
     if apps.is_empty() {
         return Err(crate::error::Error::Other(
-            "No applications specified. Provide app names or IDs as arguments.".to_string(),
+            "No applications specified. Provide app names or IDs as arguments or use --stdin."
+                .to_string(),
         ));
     }
 
@@ -1234,21 +1418,29 @@ pub async fn add_app(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Remove applications from a team
 pub async fn remove_app(
     format: OutputFormat,
     org_override: Option<&str>,
     config_path: Option<&str>,
     team_identifier: &str,
-    apps: Vec<String>,
+    mut apps: Vec<String>,
+    stdin: bool,
     dry_run: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
 
+    // Read from stdin if requested
+    if stdin {
+        apps.extend(read_stdin_lines()?);
+    }
+
     if apps.is_empty() {
         return Err(crate::error::Error::Other(
-            "No applications specified. Provide app names or IDs as arguments.".to_string(),
+            "No applications specified. Provide app names or IDs as arguments or use --stdin."
+                .to_string(),
         ));
     }
 
@@ -1351,12 +1543,18 @@ pub async fn set_apps(
     org_override: Option<&str>,
     config_path: Option<&str>,
     team_identifier: &str,
-    apps: Vec<String>,
+    mut apps: Vec<String>,
+    stdin: bool,
     dry_run: bool,
     yes: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+
+    // Read from stdin if requested
+    if stdin {
+        apps.extend(read_stdin_lines()?);
+    }
 
     // Resolve team ID and get current state - use fresh read to ensure we have latest state before mutation
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;

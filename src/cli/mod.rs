@@ -28,6 +28,24 @@ pub mod team;
 pub mod user;
 
 pub use args::{AuditFilterArgs, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
+use clap::Args;
+
+/// Team list filters for narrowing down results
+#[derive(Debug, Clone, Args, Default)]
+pub struct TeamFilterArgs {
+    /// Filter by team name (substring match, case-insensitive)
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Filter by member email (teams containing this user)
+    #[arg(long)]
+    pub member: Option<String>,
+
+    /// Filter by app name (teams assigned to this app)
+    #[arg(long)]
+    pub app: Option<String>,
+}
+
 pub use context::CommandContext;
 
 /// HawkOp CLI - Professional companion for the StackHawk DAST platform
@@ -253,41 +271,49 @@ pub enum TeamCommands {
     #[command(
         visible_alias = "ls",
         after_help = "EXAMPLES:\n  \
-            hawkop team list                    # List all teams\n  \
-            hawkop team list --format json      # JSON for scripting\n  \
-            hawkop team list | grep Security    # Filter by name"
+            hawkop team list                         # List all teams\n  \
+            hawkop team list --format json           # JSON for scripting\n  \
+            hawkop team list --name Security         # Filter by name substring\n  \
+            hawkop team list --member alice@ex.com   # Teams with this member\n  \
+            hawkop team list --app \"Web App\"         # Teams assigned to app"
     )]
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+
+        #[command(flatten)]
+        filters: TeamFilterArgs,
     },
 
     /// Get team details with members and applications
-    #[command(after_help = "EXAMPLES:\n  \
+    #[command(
+        visible_alias = "g",
+        after_help = "EXAMPLES:\n  \
             hawkop team get \"Security Team\"   # By name\n  \
             hawkop team get abc123              # By ID\n  \
-            hawkop team get abc123 --format json | jq '.data.users'")]
+            hawkop team get abc123 --format json | jq '.data.users'"
+    )]
     Get {
         /// Team ID or name
         #[arg(add = team_name_candidates())]
         team: String,
-
-        /// Output format: pretty (default), table, json
-        #[arg(long, short = 'o', default_value = "pretty")]
-        format: OutputFormat,
     },
 
     /// Create a new team
     #[command(after_help = "EXAMPLES:\n  \
-            hawkop team create \"New Team\"                         # Empty team\n  \
-            hawkop team create \"Dev Team\" --users alice@ex.com    # With initial member\n  \
-            hawkop team create \"Test\" --dry-run                   # Preview only")]
+            hawkop team create \"New Team\"                               # Empty team\n  \
+            hawkop team create \"Dev Team\" --users alice@ex.com          # With initial member\n  \
+            hawkop team create \"Team\" -u alice@ex.com -a \"Web App\"      # With member and app\n  \
+            hawkop team create \"Test\" --dry-run                         # Preview only")]
     Create {
         /// Team name
         name: String,
         /// Initial members (email or user ID), comma-separated or repeated
-        #[arg(long, short = 'u', value_delimiter = ',')]
+        #[arg(long, short = 'u', value_delimiter = ',', add = user_email_candidates())]
         users: Option<Vec<String>>,
+        /// Initial applications (name or ID), comma-separated or repeated
+        #[arg(long, short = 'a', value_delimiter = ',', add = app_name_candidates())]
+        apps: Option<Vec<String>>,
         /// Preview without creating
         #[arg(long, short = 'n')]
         dry_run: bool,
@@ -310,18 +336,17 @@ pub enum TeamCommands {
         dry_run: bool,
     },
 
-    /// Update team name
+    /// Rename a team
     #[command(after_help = "EXAMPLES:\n  \
-            hawkop team update \"Old Name\" --name \"New Name\"\n  \
-            hawkop team update abc123 --name \"Renamed\" --dry-run")]
-    Update {
-        /// Team ID or name
+            hawkop team rename \"Old Name\" \"New Name\"\n  \
+            hawkop team rename abc123 \"Renamed\" --dry-run")]
+    Rename {
+        /// Team ID or current name
         #[arg(add = team_name_candidates())]
-        team: String,
+        current: String,
         /// New team name
-        #[arg(long)]
-        name: String,
-        /// Preview without updating
+        new_name: String,
+        /// Preview without renaming
         #[arg(long, short = 'n')]
         dry_run: bool,
     },
@@ -355,15 +380,20 @@ pub enum TeamCommands {
         visible_alias = "remove-member",
         after_help = "EXAMPLES:\n  \
             hawkop team remove-user \"Security\" alice@ex.com\n  \
-            hawkop team remove-user abc123 user1@ex.com --dry-run"
+            hawkop team remove-user abc123 user1@ex.com,user2@ex.com\n  \
+            cat users.txt | hawkop team remove-user \"Team\" --stdin\n  \
+            hawkop team remove-user \"Team\" alice@ex.com --dry-run"
     )]
     RemoveUser {
         /// Team ID or name
         #[arg(add = team_name_candidates())]
         team: String,
         /// Users to remove (email or user ID), comma-separated or repeated
-        #[arg(value_delimiter = ',', add = user_email_candidates())]
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = user_email_candidates())]
         users: Vec<String>,
+        /// Read users from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
         /// Preview without removing
         #[arg(long, short = 'n')]
         dry_run: bool,
@@ -399,14 +429,19 @@ pub enum TeamCommands {
     /// Assign applications to a team
     #[command(after_help = "EXAMPLES:\n  \
             hawkop team add-app \"Security\" \"Web App\"\n  \
-            hawkop team add-app abc123 app-uuid-1 --dry-run")]
+            hawkop team add-app abc123 app1,app2\n  \
+            cat apps.txt | hawkop team add-app \"Team\" --stdin\n  \
+            hawkop team add-app \"Team\" \"Web App\" --dry-run")]
     AddApp {
         /// Team ID or name
         #[arg(add = team_name_candidates())]
         team: String,
         /// Applications to assign (name or ID), comma-separated or repeated
-        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = app_name_candidates())]
         apps: Vec<String>,
+        /// Read apps from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
         /// Preview without assigning
         #[arg(long, short = 'n')]
         dry_run: bool,
@@ -415,14 +450,19 @@ pub enum TeamCommands {
     /// Remove applications from a team
     #[command(after_help = "EXAMPLES:\n  \
             hawkop team remove-app \"Security\" \"Old App\"\n  \
-            hawkop team remove-app abc123 app-uuid --dry-run")]
+            hawkop team remove-app abc123 app1,app2\n  \
+            cat apps.txt | hawkop team remove-app \"Team\" --stdin\n  \
+            hawkop team remove-app \"Team\" \"Old App\" --dry-run")]
     RemoveApp {
         /// Team ID or name
         #[arg(add = team_name_candidates())]
         team: String,
         /// Applications to unassign (name or ID), comma-separated or repeated
-        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = app_name_candidates())]
         apps: Vec<String>,
+        /// Read apps from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
         /// Preview without removing
         #[arg(long, short = 'n')]
         dry_run: bool,
@@ -433,7 +473,8 @@ pub enum TeamCommands {
         visible_alias = "sync-apps",
         after_help = "EXAMPLES:\n  \
             hawkop team set-apps \"Team\" \"App1\",\"App2\"\n  \
-            hawkop team set-apps \"Team\" --dry-run app1,app2\n  \
+            cat apps.txt | hawkop team set-apps \"Team\" --stdin\n  \
+            hawkop team set-apps \"Team\" app1,app2 --dry-run\n  \
             hawkop team set-apps \"Team\" app1,app2 --yes"
     )]
     SetApps {
@@ -441,8 +482,11 @@ pub enum TeamCommands {
         #[arg(add = team_name_candidates())]
         team: String,
         /// Complete list of applications (replaces existing), comma-separated or repeated
-        #[arg(value_delimiter = ',', add = app_name_candidates())]
+        #[arg(required_unless_present = "stdin", value_delimiter = ',', add = app_name_candidates())]
         apps: Vec<String>,
+        /// Read apps from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
         /// Preview changes without applying
         #[arg(long, short = 'n')]
         dry_run: bool,
