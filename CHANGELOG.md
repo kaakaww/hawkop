@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Full team management commands** - First CRUD implementation in HawkOp
+  - `team get <TEAM>` - View team details with members and applications
+  - `team create <NAME>` - Create a new team with optional `--users` and `--apps`
+  - `team rename <TEAM> --name <NEW>` - Rename an existing team
+  - `team delete <TEAM>` - Delete a team (with confirmation prompt)
+- **Team member management** for SCIM-style automation
+  - `team add-user <TEAM> <USER>...` - Add users to a team
+  - `team remove-user <TEAM> <USER>...` - Remove users from a team
+  - `team set-users <TEAM> <USER>...` - Replace all team members (IdP sync)
+- **Team application assignment**
+  - `team add-app <TEAM> <APP>...` - Assign applications to a team
+  - `team remove-app <TEAM> <APP>...` - Unassign applications from a team
+  - `team set-apps <TEAM> <APP>...` - Replace all app assignments
+- **Flexible identifier resolution** - All team commands accept names OR UUIDs
+  - Teams: by name or team UUID
+  - Users: by email or user UUID
+  - Apps: by name or application UUID
+- **Dry-run mode** (`--dry-run`) on all mutating team commands
+- **Stdin support** (`--stdin`) for bulk operations in scripts
+- **Team list filters** - `--name`, `--member`, `--app` for filtering teams
+- **Shell completions** for team names, user emails, and app names
+- **Duplicate detection** - Prevents creating teams with duplicate names
+- **API documentation** for dangerous StackHawk API behaviors (`dangerous-apis.md`)
+
+### Changed
+
+- **Cache safety** - Fresh reads before mutations, cache invalidation after changes
+- **Navigation hints** - Standardized to use `→` arrow across all commands
+- Team data cached with 1-minute TTL for responsive completions
+
+### Fixed
+
+- Include `organizationId` in team update requests (API requires all 5 fields despite OpenAPI spec)
+
 ## [0.4.0] - 2026-01-12
 
 ### Added
