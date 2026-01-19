@@ -701,6 +701,7 @@ pub async fn create(
         return Ok(());
     }
 
+    // Create team with optional users and apps in a single request
     let request = CreateTeamRequest {
         name: name.to_string(),
         organization_id: org_id.clone(),
@@ -798,20 +799,28 @@ pub async fn rename(
         return Ok(());
     }
 
-    // Preserve existing users and apps when only updating name
-    let current_user_ids: Vec<_> = current_team
+    // Preserve existing users and apps - API defaults to empty if not provided
+    let current_user_ids: Vec<String> = current_team
         .users
         .iter()
         .map(|u| u.user_id.clone())
         .collect();
-    let current_app_ids: Vec<_> = current_team
+    let current_app_ids: Vec<String> = current_team
         .applications
         .iter()
         .map(|a| a.application_id.clone())
         .collect();
 
+    log::debug!(
+        "Building update request: name={}, user_ids={:?}, app_ids={:?}",
+        new_name,
+        current_user_ids,
+        current_app_ids
+    );
+
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(new_name.to_string()),
         user_ids: Some(current_user_ids),
         application_ids: Some(current_app_ids),
@@ -1018,6 +1027,7 @@ pub async fn add_user(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(all_user_ids),
         application_ids: Some(current_app_ids),
@@ -1136,6 +1146,7 @@ pub async fn remove_user(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(remaining_ids),
         application_ids: Some(current_app_ids),
@@ -1259,6 +1270,7 @@ pub async fn set_users(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(new_user_ids.into_iter().collect()),
         application_ids: Some(current_app_ids),
@@ -1385,6 +1397,7 @@ pub async fn add_app(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(current_user_ids),
         application_ids: Some(all_app_ids),
@@ -1503,6 +1516,7 @@ pub async fn remove_app(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(current_user_ids),
         application_ids: Some(remaining_ids),
@@ -1626,6 +1640,7 @@ pub async fn set_apps(
 
     let request = UpdateTeamRequest {
         team_id: team_id.clone(),
+        organization_id: org_id.clone(),
         name: Some(team.name.clone()),
         user_ids: Some(current_user_ids),
         application_ids: Some(new_app_ids.into_iter().collect()),

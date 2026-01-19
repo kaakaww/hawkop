@@ -1122,6 +1122,7 @@ mod tests {
 
         let request = UpdateTeamRequest {
             team_id: "team-456".to_string(),
+            organization_id: "org-1".to_string(),
             name: Some("New Name".to_string()),
             user_ids: None,
             application_ids: None,
@@ -1192,6 +1193,7 @@ mod tests {
 
         let request = UpdateTeamRequest {
             team_id: "team-1".to_string(),
+            organization_id: "org-1".to_string(),
             name: Some("Updated".to_string()),
             user_ids: None,
             application_ids: None,

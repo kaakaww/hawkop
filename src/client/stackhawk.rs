@@ -236,6 +236,11 @@ impl StackHawkClient {
         let url = format!("{}{}", base_url, path);
         debug!("API request: {} {} (category: {:?})", method, url, category);
 
+        // Log request body for debugging
+        if let Ok(body_json) = serde_json::to_string(body) {
+            debug!("Request body: {}", body_json);
+        }
+
         let response = self
             .http
             .request(method.clone(), &url)

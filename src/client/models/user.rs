@@ -101,26 +101,36 @@ pub struct CreateTeamRequest {
 
 /// Request to update an existing team.
 ///
-/// Note: `team_id` is passed in the URL path, not the body.
-/// The API marks teamId and organizationId as readOnly.
+/// ⚠️  CRITICAL: This is a REPLACE-ALL API, not a PATCH API!
+///
+/// Despite OpenAPI marking teamId/organizationId as "readOnly", the StackHawk
+/// API requires ALL 5 fields to be present. Any missing field defaults to an
+/// empty string or empty array, which will ERASE that data.
+///
+/// Before any PUT to /api/v1/org/{orgId}/team/{teamId}:
+/// 1. Fetch the current team state (GET the team first)
+/// 2. Build the complete desired state locally
+/// 3. PUT the entire state back
+///
+/// See: .claude/skills/stackhawk-api-sherpa/dangerous-apis.md
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTeamRequest {
-    /// Team ID (for internal use - not serialized to request body)
-    #[serde(skip_serializing)]
-    #[allow(dead_code)]
+    /// Team ID - REQUIRED despite OpenAPI saying "readOnly"
     pub team_id: String,
 
-    /// Updated team name (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Organization ID - REQUIRED despite OpenAPI saying "readOnly"
+    pub organization_id: String,
+
+    /// Team name - REQUIRED, defaults to "" if not provided
     pub name: Option<String>,
 
-    /// Updated list of member user IDs (replaces existing)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Complete list of user IDs - REQUIRED, defaults to [] if not provided
+    /// This REPLACES all team members, not appends!
     pub user_ids: Option<Vec<String>>,
 
-    /// Updated list of application IDs (replaces existing)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Complete list of application IDs - REQUIRED, defaults to [] if not provided
+    /// This REPLACES all app assignments, not appends!
     pub application_ids: Option<Vec<String>>,
 }
 
@@ -172,4 +182,74 @@ pub struct Team {
     /// Organization ID
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub organization_id: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_team_request_includes_all_fields() {
+        // CRITICAL: All 5 fields must be sent to avoid data loss
+        let req = UpdateTeamRequest {
+            team_id: "team-uuid-123".to_string(),
+            organization_id: "org-uuid-456".to_string(),
+            name: Some("New Name".to_string()),
+            user_ids: Some(vec!["user-1".to_string()]),
+            application_ids: Some(vec!["app-1".to_string()]),
+        };
+
+        let json = serde_json::to_string_pretty(&req).unwrap();
+        println!("Serialized JSON (all 5 fields required):\n{}", json);
+
+        // ALL fields must be in the serialized output
+        assert!(json.contains("teamId"), "teamId MUST be serialized");
+        assert!(
+            json.contains("team-uuid-123"),
+            "teamId value should be in JSON"
+        );
+        assert!(
+            json.contains("organizationId"),
+            "organizationId MUST be serialized"
+        );
+        assert!(
+            json.contains("org-uuid-456"),
+            "organizationId value should be in JSON"
+        );
+        assert!(json.contains("name"), "name MUST be serialized");
+        assert!(json.contains("New Name"), "name value should be in JSON");
+        assert!(json.contains("userIds"), "userIds MUST be serialized");
+        assert!(
+            json.contains("applicationIds"),
+            "applicationIds MUST be serialized"
+        );
+    }
+
+    #[test]
+    fn test_update_team_request_with_empty_arrays() {
+        // Even empty arrays must be explicitly sent
+        let req = UpdateTeamRequest {
+            team_id: "team-123".to_string(),
+            organization_id: "org-456".to_string(),
+            name: Some("Team Name".to_string()),
+            user_ids: Some(vec![]),
+            application_ids: Some(vec![]),
+        };
+
+        let json = serde_json::to_string_pretty(&req).unwrap();
+        println!("Serialized JSON with empty arrays:\n{}", json);
+
+        // All fields present
+        assert!(json.contains("teamId"), "teamId MUST be serialized");
+        assert!(
+            json.contains("organizationId"),
+            "organizationId MUST be serialized"
+        );
+        assert!(json.contains("name"), "name MUST be serialized");
+        assert!(json.contains("userIds"), "userIds MUST be serialized");
+        assert!(
+            json.contains("applicationIds"),
+            "applicationIds MUST be serialized"
+        );
+    }
 }
