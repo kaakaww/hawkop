@@ -58,7 +58,9 @@ impl From<UserExternal> for UserDisplay {
     }
 }
 
-/// Team display model for table/JSON output.
+/// Team display model for table/JSON output (basic, without counts).
+/// Note: This is kept for potential future use but TeamListDisplay is preferred.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Tabled, Serialize)]
 pub struct TeamDisplay {
     /// Team ID
@@ -82,6 +84,47 @@ impl From<Team> for TeamDisplay {
 impl From<&Team> for TeamDisplay {
     fn from(team: &Team) -> Self {
         TeamDisplay::from(team.clone())
+    }
+}
+
+use crate::client::models::TeamDetail;
+
+/// Team list display model with user and app counts.
+///
+/// This is used for `team list` output to show membership and assignment counts.
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct TeamListDisplay {
+    /// Team ID
+    #[tabled(rename = "TEAM ID")]
+    pub id: String,
+
+    /// Team name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Number of users in the team
+    #[tabled(rename = "USERS")]
+    pub users: usize,
+
+    /// Number of applications assigned to the team
+    #[tabled(rename = "APPS")]
+    pub apps: usize,
+}
+
+impl From<TeamDetail> for TeamListDisplay {
+    fn from(team: TeamDetail) -> Self {
+        Self {
+            id: team.id,
+            name: team.name,
+            users: team.users.len(),
+            apps: team.applications.len(),
+        }
+    }
+}
+
+impl From<&TeamDetail> for TeamListDisplay {
+    fn from(team: &TeamDetail) -> Self {
+        TeamListDisplay::from(team.clone())
     }
 }
 

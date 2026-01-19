@@ -19,7 +19,7 @@ pub mod rate_limit;
 pub mod stackhawk;
 
 // Re-export sub-traits
-pub use api::{AuthApi, ListingApi, ScanDetailApi};
+pub use api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
 
 #[cfg(test)]
 #[allow(unused_imports)]

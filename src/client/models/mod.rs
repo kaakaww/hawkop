@@ -37,4 +37,7 @@ pub use repo::{
 };
 pub use scan::{AlertStats, AlertStatusStats, Scan, ScanMetadata, ScanResult, ScanTag};
 pub use secret::Secret;
-pub use user::{Team, User, UserExternal};
+pub use user::{
+    CreateTeamRequest, Team, TeamApplication, TeamDetail, TeamUser, UpdateApplicationTeamRequest,
+    UpdateTeamRequest, User, UserExternal,
+};

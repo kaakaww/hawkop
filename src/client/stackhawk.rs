@@ -15,11 +15,12 @@ use tokio::sync::RwLock;
 
 use serde::de::{self, Deserializer};
 
-use super::api::{AuthApi, ListingApi, ScanDetailApi};
+use super::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse, ScanConfig,
-    ScanResult, Secret, StackHawkPolicy, Team, User,
+    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse,
+    ScanConfig, ScanResult, Secret, StackHawkPolicy, Team, TeamDetail,
+    UpdateApplicationTeamRequest, UpdateTeamRequest, User,
 };
 use super::pagination::PagedResponse;
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
@@ -191,6 +192,301 @@ impl StackHawkClient {
     ) -> Result<T> {
         self.request_with_retry(method, base_url, path, query_params, 0)
             .await
+    }
+
+    /// Internal request implementation with JSON body (for POST/PUT)
+    async fn request_with_body<T, B>(
+        &self,
+        method: reqwest::Method,
+        base_url: &str,
+        path: &str,
+        body: &B,
+    ) -> Result<T>
+    where
+        T: for<'de> Deserialize<'de>,
+        B: serde::Serialize + Send + Sync,
+    {
+        self.request_with_body_retry(method, base_url, path, body, 0)
+            .await
+    }
+
+    /// Request with JSON body and retry support
+    async fn request_with_body_retry<T, B>(
+        &self,
+        method: reqwest::Method,
+        base_url: &str,
+        path: &str,
+        body: &B,
+        attempt: u32,
+    ) -> Result<T>
+    where
+        T: for<'de> Deserialize<'de>,
+        B: serde::Serialize + Send + Sync,
+    {
+        // Categorize this endpoint for rate limiting
+        let category = EndpointCategory::from_request(path, &method);
+
+        // Wait if rate limiting is active for this category
+        self.rate_limiters.wait_for(category).await;
+
+        // Get valid JWT
+        let jwt = self.get_valid_jwt().await?;
+
+        // Build request
+        let url = format!("{}{}", base_url, path);
+        debug!("API request: {} {} (category: {:?})", method, url, category);
+
+        // Log request body for debugging
+        if let Ok(body_json) = serde_json::to_string(body) {
+            debug!("Request body: {}", body_json);
+        }
+
+        let response = self
+            .http
+            .request(method.clone(), &url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .header("Content-Type", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(ApiError::from)?;
+
+        // Handle response status
+        let status = response.status();
+        debug!(
+            "API response: {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        );
+
+        match status {
+            StatusCode::OK | StatusCode::CREATED => {
+                let body_text = response.text().await.map_err(|e| {
+                    ApiError::InvalidResponse(format!("Failed to read response body: {}", e))
+                })?;
+
+                let data: T = serde_json::from_str(&body_text).map_err(|e| {
+                    let preview = if body_text.len() > 500 {
+                        format!("{}...", &body_text[..500])
+                    } else {
+                        body_text.clone()
+                    };
+                    debug!("JSON parse error: {} in response: {}", e, preview);
+                    ApiError::InvalidResponse(format!(
+                        "Failed to parse response: {} (line {}, col {})",
+                        e,
+                        e.line(),
+                        e.column()
+                    ))
+                })?;
+                Ok(data)
+            }
+            StatusCode::UNAUTHORIZED => {
+                debug!("Received 401, attempting token refresh");
+                let api_key = {
+                    let state = self.auth_state.read().await;
+                    state.api_key.clone()
+                };
+
+                if let Some(api_key) = api_key {
+                    let jwt_token = self.authenticate(&api_key).await?;
+                    self.set_jwt(jwt_token).await;
+                    debug!("Token refreshed, retrying request");
+                    return Box::pin(
+                        self.request_with_body_retry(method, base_url, path, body, attempt),
+                    )
+                    .await;
+                }
+                Err(ApiError::Unauthorized.into())
+            }
+            StatusCode::FORBIDDEN => Err(ApiError::Forbidden.into()),
+            StatusCode::NOT_FOUND => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Resource not found".to_string());
+                Err(ApiError::NotFound(error_msg).into())
+            }
+            StatusCode::TOO_MANY_REQUESTS => {
+                self.rate_limiters.activate(category).await;
+
+                if attempt >= MAX_RATE_LIMIT_RETRIES {
+                    return Err(ApiError::RateLimited.into());
+                }
+
+                let base_wait_secs = response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(1);
+
+                let backoff_secs = base_wait_secs.saturating_mul(1 << attempt);
+                let jitter_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.subsec_nanos() % 1000)
+                    .unwrap_or(0) as u64;
+
+                let total_wait =
+                    Duration::from_secs(backoff_secs) + Duration::from_millis(jitter_ms);
+
+                debug!(
+                    "Rate limited (429), attempt {}/{}, waiting {:?} before retry",
+                    attempt + 1,
+                    MAX_RATE_LIMIT_RETRIES,
+                    total_wait
+                );
+
+                tokio::time::sleep(total_wait).await;
+                Box::pin(self.request_with_body_retry(method, base_url, path, body, attempt + 1))
+                    .await
+            }
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Bad request".to_string());
+                debug!("Bad request: {}", error_msg);
+                Err(ApiError::BadRequest(error_msg).into())
+            }
+            status if status.is_server_error() => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| format!("Server error: {}", status));
+                debug!("Server error: {}", error_msg);
+                Err(ApiError::ServerError(error_msg).into())
+            }
+            _ => {
+                let error_msg = format!("Unexpected status code: {}", status);
+                debug!("{}", error_msg);
+                Err(ApiError::InvalidResponse(error_msg).into())
+            }
+        }
+    }
+
+    /// Internal request for DELETE operations that don't return a body
+    async fn request_delete(&self, base_url: &str, path: &str) -> Result<()> {
+        self.request_delete_with_retry(base_url, path, 0).await
+    }
+
+    /// Delete request with retry support
+    async fn request_delete_with_retry(
+        &self,
+        base_url: &str,
+        path: &str,
+        attempt: u32,
+    ) -> Result<()> {
+        let method = reqwest::Method::DELETE;
+
+        // Categorize this endpoint for rate limiting
+        let category = EndpointCategory::from_request(path, &method);
+
+        // Wait if rate limiting is active for this category
+        self.rate_limiters.wait_for(category).await;
+
+        // Get valid JWT
+        let jwt = self.get_valid_jwt().await?;
+
+        // Build request
+        let url = format!("{}{}", base_url, path);
+        debug!("API request: {} {} (category: {:?})", method, url, category);
+
+        let response = self
+            .http
+            .request(method.clone(), &url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .send()
+            .await
+            .map_err(ApiError::from)?;
+
+        let status = response.status();
+        debug!(
+            "API response: {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        );
+
+        match status {
+            StatusCode::OK | StatusCode::NO_CONTENT => Ok(()),
+            StatusCode::UNAUTHORIZED => {
+                debug!("Received 401, attempting token refresh");
+                let api_key = {
+                    let state = self.auth_state.read().await;
+                    state.api_key.clone()
+                };
+
+                if let Some(api_key) = api_key {
+                    let jwt_token = self.authenticate(&api_key).await?;
+                    self.set_jwt(jwt_token).await;
+                    debug!("Token refreshed, retrying request");
+                    return Box::pin(self.request_delete_with_retry(base_url, path, attempt)).await;
+                }
+                Err(ApiError::Unauthorized.into())
+            }
+            StatusCode::FORBIDDEN => Err(ApiError::Forbidden.into()),
+            StatusCode::NOT_FOUND => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Resource not found".to_string());
+                Err(ApiError::NotFound(error_msg).into())
+            }
+            StatusCode::TOO_MANY_REQUESTS => {
+                self.rate_limiters.activate(category).await;
+
+                if attempt >= MAX_RATE_LIMIT_RETRIES {
+                    return Err(ApiError::RateLimited.into());
+                }
+
+                let base_wait_secs = response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(1);
+
+                let backoff_secs = base_wait_secs.saturating_mul(1 << attempt);
+                let jitter_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.subsec_nanos() % 1000)
+                    .unwrap_or(0) as u64;
+
+                let total_wait =
+                    Duration::from_secs(backoff_secs) + Duration::from_millis(jitter_ms);
+
+                debug!(
+                    "Rate limited (429), attempt {}/{}, waiting {:?} before retry",
+                    attempt + 1,
+                    MAX_RATE_LIMIT_RETRIES,
+                    total_wait
+                );
+
+                tokio::time::sleep(total_wait).await;
+                Box::pin(self.request_delete_with_retry(base_url, path, attempt + 1)).await
+            }
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Bad request".to_string());
+                debug!("Bad request: {}", error_msg);
+                Err(ApiError::BadRequest(error_msg).into())
+            }
+            status if status.is_server_error() => {
+                let error_msg = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| format!("Server error: {}", status));
+                debug!("Server error: {}", error_msg);
+                Err(ApiError::ServerError(error_msg).into())
+            }
+            _ => {
+                let error_msg = format!("Unexpected status code: {}", status);
+                debug!("{}", error_msg);
+                Err(ApiError::InvalidResponse(error_msg).into())
+            }
+        }
     }
 
     /// Internal request implementation with retry support for rate limiting
@@ -668,6 +964,43 @@ impl ListingApi for StackHawkClient {
         Ok(response.users)
     }
 
+    async fn list_users_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<PagedResponse<User>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct UsersPagedResponse {
+            users: Vec<User>,
+            #[serde(default, deserialize_with = "deserialize_string_to_usize")]
+            total_count: Option<usize>,
+        }
+
+        let path = format!("/org/{}/members", org_id);
+
+        // Use provided pagination or default
+        let default_params = super::PaginationParams::new().page_size(100);
+        let params = pagination.unwrap_or(&default_params);
+        let query_params: Vec<(&str, String)> = params.to_query_params();
+
+        let response: UsersPagedResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(PagedResponse::new(
+            response.users,
+            response.total_count,
+            params.page_size.unwrap_or(100),
+            params.page.unwrap_or(0),
+        ))
+    }
+
     async fn list_teams(
         &self,
         org_id: &str,
@@ -693,6 +1026,43 @@ impl ListingApi for StackHawkClient {
             )
             .await?;
         Ok(response.teams)
+    }
+
+    async fn list_teams_paged(
+        &self,
+        org_id: &str,
+        pagination: Option<&super::PaginationParams>,
+    ) -> Result<PagedResponse<Team>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct TeamsPagedResponse {
+            teams: Vec<Team>,
+            #[serde(default, deserialize_with = "deserialize_string_to_usize")]
+            total_count: Option<usize>,
+        }
+
+        let path = format!("/org/{}/teams", org_id);
+
+        // Use provided pagination or default
+        let default_params = super::PaginationParams::new().page_size(100);
+        let params = pagination.unwrap_or(&default_params);
+        let query_params: Vec<(&str, String)> = params.to_query_params();
+
+        let response: TeamsPagedResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(PagedResponse::new(
+            response.teams,
+            response.total_count,
+            params.page_size.unwrap_or(100),
+            params.page.unwrap_or(0),
+        ))
     }
 
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
@@ -990,6 +1360,90 @@ impl ScanDetailApi for StackHawkClient {
             .await?;
 
         Ok(response)
+    }
+}
+
+// ============================================================================
+// TeamApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl TeamApi for StackHawkClient {
+    async fn get_team(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        #[derive(Deserialize)]
+        struct TeamResponse {
+            team: TeamDetail,
+        }
+
+        let path = format!("/org/{}/team/{}", org_id, team_id);
+
+        let response: TeamResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
+            .await?;
+
+        Ok(response.team)
+    }
+
+    async fn create_team(&self, org_id: &str, request: CreateTeamRequest) -> Result<TeamDetail> {
+        #[derive(Deserialize)]
+        struct CreateTeamResponse {
+            team: TeamDetail,
+        }
+
+        let path = format!("/org/{}/team", org_id);
+
+        let response: CreateTeamResponse = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response.team)
+    }
+
+    async fn update_team(
+        &self,
+        org_id: &str,
+        team_id: &str,
+        request: UpdateTeamRequest,
+    ) -> Result<TeamDetail> {
+        #[derive(Deserialize)]
+        struct UpdateTeamResponse {
+            team: TeamDetail,
+        }
+
+        let path = format!("/org/{}/team/{}", org_id, team_id);
+
+        let response: UpdateTeamResponse = self
+            .request_with_body(reqwest::Method::PUT, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response.team)
+    }
+
+    async fn delete_team(&self, org_id: &str, team_id: &str) -> Result<()> {
+        let path = format!("/org/{}/team/{}", org_id, team_id);
+
+        self.request_delete(&self.base_url_v1, &path).await
+    }
+
+    async fn assign_app_to_team(
+        &self,
+        org_id: &str,
+        team_id: &str,
+        request: UpdateApplicationTeamRequest,
+    ) -> Result<()> {
+        #[derive(Deserialize)]
+        struct AssignResponse {
+            #[allow(dead_code)]
+            application_team: serde_json::Value,
+        }
+
+        let path = format!("/org/{}/team/{}/application", org_id, team_id);
+
+        let _response: AssignResponse = self
+            .request_with_body(reqwest::Method::PUT, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(())
     }
 }
 

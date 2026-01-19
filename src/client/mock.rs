@@ -7,11 +7,12 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::api::{AuthApi, ListingApi, ScanDetailApi};
+use super::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig, ScanMessage, ScanResult,
-    Secret, StackHawkPolicy, Team, User,
+    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig,
+    ScanMessage, ScanResult, Secret, StackHawkPolicy, Team, TeamApplication, TeamDetail, TeamUser,
+    UpdateApplicationTeamRequest, UpdateTeamRequest, User,
 };
 use super::pagination::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::{ApiError, Result};
@@ -39,6 +40,8 @@ pub struct MockStackHawkClient {
     users: Arc<Mutex<Vec<User>>>,
     /// Teams to return from list_teams
     teams: Arc<Mutex<Vec<Team>>>,
+    /// Team details for get_team/CRUD operations
+    team_details: Arc<Mutex<Vec<TeamDetail>>>,
     /// StackHawk policies to return from list_stackhawk_policies
     stackhawk_policies: Arc<Mutex<Vec<StackHawkPolicy>>>,
     /// Org policies to return from list_org_policies
@@ -75,6 +78,7 @@ impl Default for MockStackHawkClient {
             scans: Arc::new(Mutex::new(Vec::new())),
             users: Arc::new(Mutex::new(Vec::new())),
             teams: Arc::new(Mutex::new(Vec::new())),
+            team_details: Arc::new(Mutex::new(Vec::new())),
             stackhawk_policies: Arc::new(Mutex::new(Vec::new())),
             org_policies: Arc::new(Mutex::new(Vec::new())),
             repos: Arc::new(Mutex::new(Vec::new())),
@@ -108,6 +112,11 @@ pub struct CallCounts {
     pub list_scan_configs: usize,
     pub list_secrets: usize,
     pub list_audit: usize,
+    // Team CRUD operations
+    pub get_team: usize,
+    pub create_team: usize,
+    pub update_team: usize,
+    pub delete_team: usize,
 }
 
 impl CallCounts {
@@ -126,6 +135,10 @@ impl CallCounts {
             + self.list_scan_configs
             + self.list_secrets
             + self.list_audit
+            + self.get_team
+            + self.create_team
+            + self.update_team
+            + self.delete_team
     }
 }
 
@@ -178,6 +191,13 @@ impl MockStackHawkClient {
     #[allow(dead_code)]
     pub async fn with_teams(self, teams: Vec<Team>) -> Self {
         *self.teams.lock().await = teams;
+        self
+    }
+
+    /// Configure team details for get_team and CRUD operations.
+    #[allow(dead_code)]
+    pub async fn with_team_details(self, details: Vec<TeamDetail>) -> Self {
+        *self.team_details.lock().await = details;
         self
     }
 
@@ -427,6 +447,52 @@ impl ListingApi for MockStackHawkClient {
         Ok(self.teams.lock().await.clone())
     }
 
+    async fn list_users_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<User>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_users += 1;
+
+        let users = self.users.lock().await.clone();
+        let total_count = users.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(
+            users,
+            Some(total_count),
+            page_size,
+            page_idx,
+        ))
+    }
+
+    async fn list_teams_paged(
+        &self,
+        _org_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<PagedResponse<Team>> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.list_teams += 1;
+
+        let teams = self.teams.lock().await.clone();
+        let total_count = teams.len();
+        let page_size = pagination.and_then(|p| p.page_size).unwrap_or(100);
+        let page_idx = pagination.and_then(|p| p.page).unwrap_or(0);
+
+        Ok(PagedResponse::new(
+            teams,
+            Some(total_count),
+            page_size,
+            page_idx,
+        ))
+    }
+
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
         self.check_error().await?;
 
@@ -587,6 +653,138 @@ impl ScanDetailApi for MockStackHawkClient {
             description: None,
             validation_command: None,
         })
+    }
+}
+
+// ============================================================================
+// TeamApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl TeamApi for MockStackHawkClient {
+    async fn get_team(&self, _org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.get_team += 1;
+        drop(counts);
+
+        let details = self.team_details.lock().await;
+        details
+            .iter()
+            .find(|t| t.id == team_id)
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound(format!("Team not found: {}", team_id)).into())
+    }
+
+    async fn get_team_fresh(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
+        // For mock, fresh and cached are the same
+        self.get_team(org_id, team_id).await
+    }
+
+    async fn create_team(&self, _org_id: &str, request: CreateTeamRequest) -> Result<TeamDetail> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.create_team += 1;
+        drop(counts);
+
+        // Create a new team detail from the request
+        // Use a simple incrementing ID for mock purposes
+        let existing_count = self.team_details.lock().await.len();
+        let new_team = TeamDetail {
+            id: format!("mock-team-{}", existing_count + 1),
+            name: request.name,
+            organization_id: Some(request.organization_id),
+            users: vec![],
+            applications: vec![],
+        };
+
+        // Add to storage
+        let mut details = self.team_details.lock().await;
+        details.push(new_team.clone());
+
+        Ok(new_team)
+    }
+
+    async fn update_team(
+        &self,
+        _org_id: &str,
+        team_id: &str,
+        request: UpdateTeamRequest,
+    ) -> Result<TeamDetail> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.update_team += 1;
+        drop(counts);
+
+        let mut details = self.team_details.lock().await;
+        let team = details
+            .iter_mut()
+            .find(|t| t.id == team_id)
+            .ok_or_else(|| ApiError::NotFound(format!("Team not found: {}", team_id)))?;
+
+        // Update the name if provided
+        if let Some(name) = request.name {
+            team.name = name;
+        }
+
+        // Update users if provided
+        if let Some(user_ids) = request.user_ids {
+            team.users = user_ids
+                .into_iter()
+                .map(|id| TeamUser {
+                    user_id: id.clone(),
+                    user_name: Some(format!("User {}", id)),
+                    email: Some(format!("user-{}@example.com", id)),
+                    role: Some("Member".to_string()),
+                })
+                .collect();
+        }
+
+        // Update applications if provided
+        if let Some(app_ids) = request.application_ids {
+            team.applications = app_ids
+                .into_iter()
+                .map(|id| TeamApplication {
+                    application_id: id.clone(),
+                    application_name: Some(format!("App {}", id)),
+                    environments: vec!["Development".to_string()],
+                })
+                .collect();
+        }
+
+        Ok(team.clone())
+    }
+
+    async fn delete_team(&self, _org_id: &str, team_id: &str) -> Result<()> {
+        self.check_error().await?;
+
+        let mut counts = self.call_count.lock().await;
+        counts.delete_team += 1;
+        drop(counts);
+
+        let mut details = self.team_details.lock().await;
+        let initial_len = details.len();
+        details.retain(|t| t.id != team_id);
+
+        if details.len() == initial_len {
+            return Err(ApiError::NotFound(format!("Team not found: {}", team_id)).into());
+        }
+
+        Ok(())
+    }
+
+    async fn assign_app_to_team(
+        &self,
+        _org_id: &str,
+        _team_id: &str,
+        _request: UpdateApplicationTeamRequest,
+    ) -> Result<()> {
+        self.check_error().await?;
+        // For mock, just succeed
+        Ok(())
     }
 }
 
@@ -846,5 +1044,166 @@ mod tests {
         let response = mock.list_apps_paged("org", None).await.unwrap();
         assert_eq!(response.total_count, Some(3)); // 1 + 2 apps total
         assert_eq!(response.items.len(), 1); // page 0 has 1 app
+    }
+
+    // ========================================================================
+    // TeamApi tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_mock_team_get_returns_configured_team() {
+        let team = TeamDetail {
+            id: "team-123".to_string(),
+            name: "Security Team".to_string(),
+            organization_id: Some("org-1".to_string()),
+            users: vec![],
+            applications: vec![],
+        };
+
+        let mock = MockStackHawkClient::new()
+            .with_team_details(vec![team])
+            .await;
+
+        let result = mock.get_team("org-1", "team-123").await.unwrap();
+        assert_eq!(result.id, "team-123");
+        assert_eq!(result.name, "Security Team");
+
+        // Verify call count
+        let counts = mock.call_counts().await;
+        assert_eq!(counts.get_team, 1);
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_get_not_found() {
+        let mock = MockStackHawkClient::new();
+
+        let result = mock.get_team("org-1", "nonexistent").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_create() {
+        let mock = MockStackHawkClient::new();
+
+        let request = CreateTeamRequest {
+            name: "New Team".to_string(),
+            organization_id: "org-1".to_string(),
+            user_ids: None,
+            application_ids: None,
+        };
+
+        let result = mock.create_team("org-1", request).await.unwrap();
+        assert_eq!(result.name, "New Team");
+        assert!(result.id.starts_with("mock-team-"));
+
+        // Verify call count
+        let counts = mock.call_counts().await;
+        assert_eq!(counts.create_team, 1);
+
+        // Verify team was added to storage and can be retrieved
+        let retrieved = mock.get_team("org-1", &result.id).await.unwrap();
+        assert_eq!(retrieved.name, "New Team");
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_update() {
+        let team = TeamDetail {
+            id: "team-456".to_string(),
+            name: "Old Name".to_string(),
+            organization_id: Some("org-1".to_string()),
+            users: vec![],
+            applications: vec![],
+        };
+
+        let mock = MockStackHawkClient::new()
+            .with_team_details(vec![team])
+            .await;
+
+        let request = UpdateTeamRequest {
+            team_id: "team-456".to_string(),
+            organization_id: "org-1".to_string(),
+            name: Some("New Name".to_string()),
+            user_ids: None,
+            application_ids: None,
+        };
+
+        let result = mock
+            .update_team("org-1", "team-456", request)
+            .await
+            .unwrap();
+        assert_eq!(result.name, "New Name");
+
+        // Verify call count
+        let counts = mock.call_counts().await;
+        assert_eq!(counts.update_team, 1);
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_delete() {
+        let team = TeamDetail {
+            id: "team-789".to_string(),
+            name: "To Delete".to_string(),
+            organization_id: Some("org-1".to_string()),
+            users: vec![],
+            applications: vec![],
+        };
+
+        let mock = MockStackHawkClient::new()
+            .with_team_details(vec![team])
+            .await;
+
+        // Delete should succeed
+        mock.delete_team("org-1", "team-789").await.unwrap();
+
+        // Verify call count
+        let counts = mock.call_counts().await;
+        assert_eq!(counts.delete_team, 1);
+
+        // Team should no longer exist
+        let result = mock.get_team("org-1", "team-789").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_delete_not_found() {
+        let mock = MockStackHawkClient::new();
+
+        let result = mock.delete_team("org-1", "nonexistent").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_team_call_counts_in_total() {
+        let team = TeamDetail {
+            id: "team-1".to_string(),
+            name: "Test".to_string(),
+            organization_id: Some("org-1".to_string()),
+            users: vec![],
+            applications: vec![],
+        };
+
+        let mock = MockStackHawkClient::new()
+            .with_team_details(vec![team])
+            .await;
+
+        // Make some team API calls
+        mock.get_team("org-1", "team-1").await.unwrap();
+        mock.get_team("org-1", "team-1").await.unwrap();
+
+        let request = UpdateTeamRequest {
+            team_id: "team-1".to_string(),
+            organization_id: "org-1".to_string(),
+            name: Some("Updated".to_string()),
+            user_ids: None,
+            application_ids: None,
+        };
+        mock.update_team("org-1", "team-1", request).await.unwrap();
+
+        // Verify total includes team calls
+        let counts = mock.call_counts().await;
+        assert_eq!(counts.get_team, 2);
+        assert_eq!(counts.update_team, 1);
+        assert_eq!(counts.total(), 3); // 2 gets + 1 update
     }
 }

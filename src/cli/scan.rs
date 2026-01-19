@@ -565,7 +565,7 @@ async fn resolve_latest_scan(
 /// Tags:
 ///   Key: Value
 ///
-/// Continue: hawkop scan get <scan-id> --plugin-id <plugin-id>
+/// → Drill down: hawkop scan get <scan-id> --plugin-id <plugin-id>
 /// ```
 async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str) -> Result<()> {
     debug!("Fetching pretty overview for {}", scan_id);
@@ -721,7 +721,7 @@ async fn show_pretty_overview(ctx: &CommandContext, org_id: &str, scan_id: &str)
             // Navigation hint (use full scan ID)
             eprintln!();
             eprintln!(
-                "Continue: hawkop scan get {} --plugin-id <plugin-id>",
+                "→ Drill down: hawkop scan get {} --plugin-id <plugin-id>",
                 scan_id
             );
         }
@@ -879,7 +879,10 @@ async fn show_alert_detail(
             // Navigation hint (use full scan ID for consistency)
             if !display_paths.is_empty() {
                 eprintln!();
-                eprintln!("Continue: hawkop scan get {} --uri-id <uri-id>", scan_id);
+                eprintln!(
+                    "→ Drill down: hawkop scan get {} --uri-id <uri-id>",
+                    scan_id
+                );
             }
         }
         OutputFormat::Json => {
@@ -967,7 +970,7 @@ async fn show_uri_detail_by_id(
 
                     eprintln!();
                     eprintln!(
-                        "Continue: hawkop scan get {} --uri-id {} -m",
+                        "→ View HTTP message: hawkop scan get {} --uri-id {} -m",
                         scan_id, uri_id
                     );
                 }
