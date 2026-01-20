@@ -370,6 +370,79 @@ fn read_stdin_lines() -> Result<Vec<String>> {
 }
 
 // ============================================================================
+// Duplicate App Detection (API Safety)
+// ============================================================================
+
+/// Check if any of the given app IDs are already assigned to other teams.
+///
+/// Returns a list of (app_name, app_id, other_team_name) tuples for any duplicates found.
+///
+/// The StackHawk platform enforces that each app may only belong to one team at a time.
+/// This check provides a clear error message before attempting an invalid assignment.
+async fn check_duplicate_app_assignments(
+    client: Client,
+    org_id: &str,
+    target_team_id: &str,
+    app_ids: &[String],
+) -> Result<Vec<(String, String, String)>> {
+    use futures::stream::{FuturesUnordered, StreamExt};
+
+    if app_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Fetch all teams to check their app assignments
+    let all_teams = fetch_all_teams(client.clone(), org_id).await?;
+
+    // Fetch team details in parallel
+    debug!(
+        "Checking {} teams for duplicate app assignments",
+        all_teams.len()
+    );
+    let mut futures: FuturesUnordered<_> = all_teams
+        .iter()
+        .filter(|t| t.id != target_team_id) // Skip the target team
+        .map(|team| {
+            let c = client.clone();
+            let org = org_id.to_string();
+            let team_id = team.id.clone();
+            async move { c.get_team(&org, &team_id).await }
+        })
+        .collect();
+
+    // Build a map of app_id -> team_name for apps in other teams
+    let mut app_to_team: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+
+    while let Some(result) = futures.next().await {
+        if let Ok(team_detail) = result {
+            for app in &team_detail.applications {
+                let app_name = app
+                    .application_name
+                    .clone()
+                    .unwrap_or_else(|| app.application_id.clone());
+                app_to_team.insert(
+                    app.application_id.clone(),
+                    (app_name, team_detail.name.clone()),
+                );
+            }
+        }
+    }
+
+    // Check which requested apps are already assigned elsewhere
+    let duplicates: Vec<(String, String, String)> = app_ids
+        .iter()
+        .filter_map(|app_id| {
+            app_to_team
+                .get(app_id)
+                .map(|(app_name, team_name)| (app_name.clone(), app_id.clone(), team_name.clone()))
+        })
+        .collect();
+
+    Ok(duplicates)
+}
+
+// ============================================================================
 // Command Context Setup
 // ============================================================================
 
@@ -638,6 +711,7 @@ pub async fn create(
     users: Option<Vec<String>>,
     apps: Option<Vec<String>>,
     dry_run: bool,
+    force: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
@@ -684,6 +758,34 @@ pub async fn create(
         None
     };
 
+    // Safety check: each app may only belong to one team at a time
+    // For create, there's no "target team" yet, so we pass empty string to check all teams
+    if !force && let Some(ref ids) = app_ids {
+        let duplicates = check_duplicate_app_assignments(client.clone(), &org_id, "", ids).await?;
+
+        if !duplicates.is_empty() {
+            let dup_list = duplicates
+                .iter()
+                .map(|(app_name, app_id, other_team)| {
+                    format!(
+                        "  • \"{}\" (ID: {}) → already in team \"{}\"",
+                        app_name, app_id, other_team
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let first_dup = &duplicates[0];
+            return Err(crate::error::Error::Other(format!(
+                "Cannot assign app(s) already in other teams:\n\n{}\n\n\
+                 Each app may only be assigned to one team at a time.\n\n\
+                 → Remove first: hawkop team remove-app \"{}\" \"{}\"\n\
+                 → Or use --force to override (not recommended)",
+                dup_list, first_dup.2, first_dup.0
+            )));
+        }
+    }
+
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
         eprintln!();
@@ -699,6 +801,14 @@ pub async fn create(
             eprintln!("Initial applications: {}", ids.len());
         }
         return Ok(());
+    }
+
+    // Warn if using --force
+    if force && app_ids.is_some() {
+        eprintln!(
+            "{} Using --force: bypassing duplicate app safety check",
+            "⚠".yellow()
+        );
     }
 
     // Create team with optional users and apps in a single request
@@ -1322,6 +1432,7 @@ pub async fn add_app(
     mut apps: Vec<String>,
     stdin: bool,
     dry_run: bool,
+    force: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
@@ -1359,6 +1470,35 @@ pub async fn add_app(
         .cloned()
         .collect();
 
+    // Safety check: each app may only belong to one team at a time
+    if !force && !apps_to_add.is_empty() {
+        let duplicates =
+            check_duplicate_app_assignments(client.clone(), &org_id, &team_id, &apps_to_add)
+                .await?;
+
+        if !duplicates.is_empty() {
+            let dup_list = duplicates
+                .iter()
+                .map(|(app_name, app_id, other_team)| {
+                    format!(
+                        "  • \"{}\" (ID: {}) → already in team \"{}\"",
+                        app_name, app_id, other_team
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let first_dup = &duplicates[0];
+            return Err(crate::error::Error::Other(format!(
+                "Cannot assign app(s) already in other teams:\n\n{}\n\n\
+                 Each app may only be assigned to one team at a time.\n\n\
+                 → Remove first: hawkop team remove-app \"{}\" \"{}\"\n\
+                 → Or use --force to override (not recommended)",
+                dup_list, first_dup.2, first_dup.0
+            )));
+        }
+    }
+
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
         eprintln!();
@@ -1386,6 +1526,14 @@ pub async fn add_app(
             "ℹ".blue()
         );
         return Ok(());
+    }
+
+    // Warn if using --force
+    if force {
+        eprintln!(
+            "{} Using --force: bypassing duplicate app safety check",
+            "⚠".yellow()
+        );
     }
 
     // Build new complete app list
@@ -1561,6 +1709,7 @@ pub async fn set_apps(
     stdin: bool,
     dry_run: bool,
     yes: bool,
+    force: bool,
     no_cache: bool,
 ) -> Result<()> {
     let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
@@ -1589,6 +1738,34 @@ pub async fn set_apps(
     let to_add: Vec<_> = new_app_ids.difference(&current_ids).cloned().collect();
     let to_remove: Vec<_> = current_ids.difference(&new_app_ids).cloned().collect();
     let unchanged: Vec<_> = new_app_ids.intersection(&current_ids).cloned().collect();
+
+    // Safety check: each app may only belong to one team at a time
+    if !force && !to_add.is_empty() {
+        let duplicates =
+            check_duplicate_app_assignments(client.clone(), &org_id, &team_id, &to_add).await?;
+
+        if !duplicates.is_empty() {
+            let dup_list = duplicates
+                .iter()
+                .map(|(app_name, app_id, other_team)| {
+                    format!(
+                        "  • \"{}\" (ID: {}) → already in team \"{}\"",
+                        app_name, app_id, other_team
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let first_dup = &duplicates[0];
+            return Err(crate::error::Error::Other(format!(
+                "Cannot assign app(s) already in other teams:\n\n{}\n\n\
+                 Each app may only be assigned to one team at a time.\n\n\
+                 → Remove first: hawkop team remove-app \"{}\" \"{}\"\n\
+                 → Or use --force to override (not recommended)",
+                dup_list, first_dup.2, first_dup.0
+            )));
+        }
+    }
 
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
@@ -1633,6 +1810,14 @@ pub async fn set_apps(
             eprintln!("Cancelled.");
             return Ok(());
         }
+    }
+
+    // Warn if using --force
+    if force && !to_add.is_empty() {
+        eprintln!(
+            "{} Using --force: bypassing duplicate app safety check",
+            "⚠".yellow()
+        );
     }
 
     // Preserve existing users
