@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate app safety check** in `team create` - Warns if specified apps are already assigned to other teams, preventing the cascading error bug
+
+### Changed
+
+- API quirks documentation now focuses on user-facing symptoms and workarounds
+
 ## [0.5.0] - 2026-01-19
 
 ### Added
