@@ -33,7 +33,7 @@ Before designing any command:
 1. **Read** `.claude/context/stackhawk-api.md`
 2. **Check** implementation status - is this endpoint already wrapped?
 3. **Review** the data model relationships diagram
-4. **⚠️ Check** [dangerous-apis.md](dangerous-apis.md) for API quirks that don't match the OpenAPI spec
+4. **Note:** Check [api-quirks.md](api-quirks.md) for API behaviors that don't match the OpenAPI spec
 
 ---
 
@@ -178,7 +178,7 @@ After implementing:
 ## Quick Reference Links
 
 - **API Reference**: `.claude/context/stackhawk-api.md`
-- **⚠️ Dangerous APIs**: [dangerous-apis.md](dangerous-apis.md) - API quirks that cause data loss
+- **API Quirks**: [api-quirks.md](api-quirks.md) - API behaviors that differ from the OpenAPI spec
 - **CLI Design Principles**: `docs/CLI_DESIGN_PRINCIPLES.md`
 - **Implementation Patterns**: `CLAUDE.md` → "Adding New Commands"
 - **OpenAPI Spec**: `stackhawk-openapi.json`

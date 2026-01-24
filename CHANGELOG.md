@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate app safety check** in `team create` - Warns if specified apps are already assigned to other teams, preventing the cascading error bug
+
+### Changed
+
+- API quirks documentation now focuses on user-facing symptoms and workarounds
+
 ## [0.5.0] - 2026-01-19
 
 ### Added
@@ -33,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Team list filters** - `--name`, `--member`, `--app` for filtering teams
 - **Shell completions** for team names, user emails, and app names
 - **Duplicate detection** - Prevents creating teams with duplicate names
-- **API documentation** for dangerous StackHawk API behaviors (`dangerous-apis.md`)
+- **API documentation** for StackHawk API quirks and edge cases (`api-quirks.md`)
 
 ### Changed
 

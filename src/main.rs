@@ -174,6 +174,7 @@ async fn run() -> Result<()> {
                 users,
                 apps,
                 dry_run,
+                force,
             } => {
                 cli::team::create(
                     cli.format,
@@ -183,6 +184,7 @@ async fn run() -> Result<()> {
                     users,
                     apps,
                     dry_run,
+                    force,
                     cli.no_cache,
                 )
                 .await
@@ -276,6 +278,7 @@ async fn run() -> Result<()> {
                 apps,
                 stdin,
                 dry_run,
+                force,
             } => {
                 cli::team::add_app(
                     cli.format,
@@ -285,6 +288,7 @@ async fn run() -> Result<()> {
                     apps,
                     stdin,
                     dry_run,
+                    force,
                     cli.no_cache,
                 )
                 .await
@@ -313,6 +317,7 @@ async fn run() -> Result<()> {
                 stdin,
                 dry_run,
                 yes,
+                force,
             } => {
                 cli::team::set_apps(
                     cli.format,
@@ -323,6 +328,7 @@ async fn run() -> Result<()> {
                     stdin,
                     dry_run,
                     yes,
+                    force,
                     cli.no_cache,
                 )
                 .await

@@ -304,7 +304,10 @@ pub enum TeamCommands {
             hawkop team create \"New Team\"                               # Empty team\n  \
             hawkop team create \"Dev Team\" --users alice@ex.com          # With initial member\n  \
             hawkop team create \"Team\" -u alice@ex.com -a \"Web App\"      # With member and app\n  \
-            hawkop team create \"Test\" --dry-run                         # Preview only")]
+            hawkop team create \"Test\" --dry-run                         # Preview only\n\n\
+        SAFETY:\n  \
+            Apps can only belong to one team at a time. Attempting to assign\n  \
+            an app that's already in another team will fail unless --force is used.")]
     Create {
         /// Team name
         name: String,
@@ -317,6 +320,9 @@ pub enum TeamCommands {
         /// Preview without creating
         #[arg(long, short = 'n')]
         dry_run: bool,
+        /// Allow duplicate app assignments (not recommended - can cause API issues)
+        #[arg(long, short = 'f')]
+        force: bool,
     },
 
     /// Delete a team
@@ -431,7 +437,10 @@ pub enum TeamCommands {
             hawkop team add-app \"Security\" \"Web App\"\n  \
             hawkop team add-app abc123 app1,app2\n  \
             cat apps.txt | hawkop team add-app \"Team\" --stdin\n  \
-            hawkop team add-app \"Team\" \"Web App\" --dry-run")]
+            hawkop team add-app \"Team\" \"Web App\" --dry-run\n\n\
+SAFETY:\n  \
+            Apps can only belong to one team at a time. Attempting to assign\n  \
+            an app that's already in another team will fail unless --force is used.")]
     AddApp {
         /// Team ID or name
         #[arg(add = team_name_candidates())]
@@ -445,6 +454,9 @@ pub enum TeamCommands {
         /// Preview without assigning
         #[arg(long, short = 'n')]
         dry_run: bool,
+        /// Allow duplicate app assignments (not recommended - can cause API issues)
+        #[arg(long, short = 'f')]
+        force: bool,
     },
 
     /// Remove applications from a team
@@ -475,7 +487,10 @@ pub enum TeamCommands {
             hawkop team set-apps \"Team\" \"App1\",\"App2\"\n  \
             cat apps.txt | hawkop team set-apps \"Team\" --stdin\n  \
             hawkop team set-apps \"Team\" app1,app2 --dry-run\n  \
-            hawkop team set-apps \"Team\" app1,app2 --yes"
+            hawkop team set-apps \"Team\" app1,app2 --yes\n\n\
+SAFETY:\n  \
+            Apps can only belong to one team at a time. Attempting to assign\n  \
+            an app that's already in another team will fail unless --force is used."
     )]
     SetApps {
         /// Team ID or name
@@ -493,6 +508,9 @@ pub enum TeamCommands {
         /// Skip confirmation prompt
         #[arg(long, short = 'y')]
         yes: bool,
+        /// Allow duplicate app assignments (not recommended - can cause API issues)
+        #[arg(long, short = 'f')]
+        force: bool,
     },
 }
 
