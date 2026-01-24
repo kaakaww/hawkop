@@ -112,7 +112,7 @@ pub struct CreateTeamRequest {
 /// 2. Build the complete desired state locally
 /// 3. PUT the entire state back
 ///
-/// See: .claude/skills/stackhawk-api-sherpa/dangerous-apis.md
+/// See: .claude/skills/stackhawk-api-sherpa/api-quirks.md
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTeamRequest {

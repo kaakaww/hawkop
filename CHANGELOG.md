@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Team list filters** - `--name`, `--member`, `--app` for filtering teams
 - **Shell completions** for team names, user emails, and app names
 - **Duplicate detection** - Prevents creating teams with duplicate names
-- **API documentation** for dangerous StackHawk API behaviors (`dangerous-apis.md`)
+- **API documentation** for StackHawk API quirks and edge cases (`api-quirks.md`)
 
 ### Changed
 
