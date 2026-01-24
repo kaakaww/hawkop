@@ -2,62 +2,112 @@
 
 use colored::Colorize;
 
-use crate::config::Config;
-use crate::error::{ConfigError, Result};
+use crate::cli::args::GlobalOptions;
+use crate::config::ProfiledConfig;
+use crate::error::Result;
 
-/// Run the status command
-pub fn run(config_path: Option<&str>) -> Result<()> {
-    println!("{}", "HawkOp Configuration Status".bold());
-    println!();
+/// Run the status command to display configuration status
+pub fn run(opts: &GlobalOptions) -> Result<()> {
+    println!("{}\n", "HawkOp Configuration Status".bold());
 
-    // Try to load config
-    let config_path = Config::resolve_path(config_path)?;
-    println!("Config file: {}", config_path.display());
+    // Load profiled config
+    let config_result = ProfiledConfig::load_at(opts.config_ref());
 
-    match Config::load_from(config_path.clone()) {
-        Ok(config) => {
-            // Authentication status
-            if config.api_key.is_some() {
+    match config_result {
+        Ok(profiled_config) => {
+            // Show config file location
+            let config_path = ProfiledConfig::resolve_path(opts.config_ref())?;
+            println!("Config file: {}", config_path.display().to_string().cyan());
+
+            // Resolve which profile to show
+            let (profile_name, profile) = profiled_config.resolve_profile(opts.profile_ref())?;
+
+            // Show profile info
+            let is_active = profile_name == profiled_config.active_profile;
+            if is_active {
+                println!("Profile: {} {}", profile_name.bold(), "(active)".green());
+            } else {
+                println!(
+                    "Profile: {} {}",
+                    profile_name.bold(),
+                    "(via --profile flag)".dimmed()
+                );
+            }
+
+            println!();
+
+            // API key status
+            if profile.api_key.is_some() {
                 println!("{} API key configured", "✓".green());
+            } else {
+                println!("{} API key not configured", "✗".red());
+                println!("  → Run 'hawkop init' to configure");
+            }
 
-                // JWT status
-                if config.is_token_expired() {
+            // JWT token status
+            if let Some(ref jwt) = profile.jwt {
+                if profile.is_token_expired() {
                     println!(
-                        "  {} JWT token expired (will be refreshed automatically)",
+                        "{} JWT token expired (will refresh on next command)",
                         "⚠".yellow()
                     );
                 } else {
-                    println!("  {} JWT token valid", "✓".green());
+                    // Calculate remaining time
+                    let now = chrono::Utc::now();
+                    let expires = jwt.expires_at;
+                    let remaining = expires.signed_duration_since(now);
+                    let hours = remaining.num_hours();
+                    let mins = remaining.num_minutes() % 60;
+
+                    println!(
+                        "{} JWT token valid (expires in {}h {}m)",
+                        "✓".green(),
+                        hours,
+                        mins
+                    );
                 }
             } else {
-                println!("{} API key not configured", "✗".red());
+                println!(
+                    "{} JWT token not cached (will authenticate on next command)",
+                    "○".dimmed()
+                );
             }
 
             // Organization status
-            if let Some(org_id) = &config.org_id {
+            if let Some(ref org_id) = profile.org_id {
                 println!("{} Default organization: {}", "✓".green(), org_id);
             } else {
-                println!("{} No default organization set", "⚠".yellow());
+                println!("{} No default organization set", "○".dimmed());
+                println!("  → Run 'hawkop org set <ID>' to set one");
             }
 
-            // Preferences
-            println!("\n{}", "Preferences:".bold());
-            println!("  Page size: {}", config.preferences.page_size);
-            if let Some(format) = &config.preferences.format {
-                println!("  Default format: {}", format);
+            // API host status (only show if custom)
+            if let Some(ref host) = profile.api_host {
+                println!("{} Custom API host: {}", "○".dimmed(), host.cyan());
             }
+
+            // Show other profiles
+            let other_profiles: Vec<_> = profiled_config
+                .list_profiles()
+                .into_iter()
+                .filter(|p| *p != profile_name)
+                .collect();
+
+            if !other_profiles.is_empty() {
+                println!();
+                println!("Other profiles: {}", other_profiles.join(", ").dimmed());
+            }
+
+            println!();
         }
-        Err(e) => {
-            // Check if it's a ConfigError::NotFound
-            match &e {
-                crate::error::Error::Config(ConfigError::NotFound) => {
-                    println!("{} Configuration not found", "✗".red());
-                    println!("\nRun {} to set up HawkOp.", "hawkop init".cyan());
-                }
-                _ => {
-                    println!("{} Error loading configuration: {}", "✗".red(), e);
-                }
-            }
+        Err(_) => {
+            println!("{} Configuration not found", "✗".red());
+            println!();
+            println!(
+                "Run {} to create a configuration file.",
+                "hawkop init".cyan()
+            );
+            println!();
         }
     }
 

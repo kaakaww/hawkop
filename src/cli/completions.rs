@@ -129,7 +129,9 @@ pub fn complete_scan_ids() -> Vec<CompletionCandidate> {
 
     // Try cache first
     let cache = completion_cache();
-    let cache_key = cache_key("complete_scan_ids", Some(org_id), &[]);
+    // Note: Shell completions don't have access to the API host configuration,
+    // so we pass None. This creates a separate cache namespace for completions.
+    let cache_key = cache_key("complete_scan_ids", None, Some(org_id), &[]);
 
     if let Some(ref c) = cache {
         let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
@@ -224,7 +226,7 @@ pub fn complete_app_names() -> Vec<CompletionCandidate> {
 
     // Try cache first
     let cache = completion_cache();
-    let cache_key = cache_key("complete_app_names", Some(org_id), &[]);
+    let cache_key = cache_key("complete_app_names", None, Some(org_id), &[]);
 
     if let Some(ref c) = cache {
         let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
@@ -337,7 +339,12 @@ pub fn complete_plugin_ids() -> Vec<CompletionCandidate> {
 
     // Try cache first (keyed by scan_id)
     let cache = completion_cache();
-    let cache_key = cache_key("complete_plugin_ids", None, &[("scan_id", &scan_id)]);
+    let cache_key = cache_key(
+        "complete_plugin_ids",
+        None,
+        None,
+        &[("scan_id", scan_id.as_str())],
+    );
 
     if let Some(ref c) = cache {
         let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
@@ -449,9 +456,15 @@ pub fn complete_uri_ids() -> Vec<CompletionCandidate> {
         Some(pid) => cache_key(
             "complete_uri_ids",
             None,
-            &[("scan_id", &scan_id), ("plugin_id", pid)],
+            None,
+            &[("scan_id", scan_id.as_str()), ("plugin_id", pid.as_str())],
         ),
-        None => cache_key("complete_uri_ids", None, &[("scan_id", &scan_id)]),
+        None => cache_key(
+            "complete_uri_ids",
+            None,
+            None,
+            &[("scan_id", scan_id.as_str())],
+        ),
     };
 
     // Try cache first
@@ -725,7 +738,7 @@ pub fn complete_team_names() -> Vec<CompletionCandidate> {
 
     // Try cache first
     let cache = completion_cache();
-    let cache_key = cache_key("complete_team_names", Some(org_id), &[]);
+    let cache_key = cache_key("complete_team_names", None, Some(org_id), &[]);
 
     if let Some(ref c) = cache {
         let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
@@ -800,7 +813,7 @@ pub fn complete_user_emails() -> Vec<CompletionCandidate> {
 
     // Try cache first
     let cache = completion_cache();
-    let cache_key = cache_key("complete_user_emails", Some(org_id), &[]);
+    let cache_key = cache_key("complete_user_emails", None, Some(org_id), &[]);
 
     if let Some(ref c) = cache {
         let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);

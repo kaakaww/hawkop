@@ -2,7 +2,8 @@
 
 use log::debug;
 
-use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
+use crate::cli::args::GlobalOptions;
+use crate::cli::{CommandContext, PaginationArgs};
 use crate::client::models::Application;
 use crate::client::{ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
@@ -17,14 +18,11 @@ const PARALLEL_FETCH_LIMIT: usize = 32;
 
 /// Run the app list command
 pub async fn list(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     app_type: Option<&str>,
     pagination: &PaginationArgs,
-    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+    let ctx = CommandContext::new(opts).await?;
     let org_id = ctx.require_org_id()?;
 
     // Fetch apps using totalCount-based parallel pagination

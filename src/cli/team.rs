@@ -9,6 +9,7 @@ use dialoguer::Confirm;
 use log::debug;
 
 use crate::cache::CachedStackHawkClient;
+use crate::cli::args::GlobalOptions;
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, TeamFilterArgs};
 use crate::client::models::{
     Application, CreateTeamRequest, Team, TeamDetail, UpdateTeamRequest, User,
@@ -449,18 +450,8 @@ async fn check_duplicate_app_assignments(
 /// Common setup for team commands that need API access.
 ///
 /// Returns an Arc-wrapped cached client suitable for parallel requests.
-async fn setup_team_context(
-    org_override: Option<&str>,
-    config_path: Option<&str>,
-    no_cache: bool,
-) -> Result<(String, Client)> {
-    let ctx = CommandContext::new(
-        OutputFormat::Pretty, // Format doesn't matter for setup
-        org_override,
-        config_path,
-        no_cache,
-    )
-    .await?;
+async fn setup_team_context(opts: &GlobalOptions) -> Result<(String, Client)> {
+    let ctx = CommandContext::new(opts).await?;
 
     let org_id = ctx.require_org_id()?.to_string();
     Ok((org_id, ctx.client))
@@ -540,18 +531,16 @@ fn display_team_detail(team: &TeamDetail, format: OutputFormat) -> Result<()> {
 /// Unlike other list commands, this fetches team details in parallel to get
 /// accurate member and application counts for each team.
 pub async fn list(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     pagination: &PaginationArgs,
     filters: &TeamFilterArgs,
-    no_cache: bool,
 ) -> Result<()> {
     use crate::models::TeamListDisplay;
     use crate::output::Formattable;
     use futures::stream::{FuturesUnordered, StreamExt};
 
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Fetch teams - use pagination if limit specified, otherwise fetch all
     let teams = if let Some(limit) = pagination.limit {
@@ -677,14 +666,9 @@ pub async fn list(
 // ============================================================================
 
 /// Get team details
-pub async fn get(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
-    team_identifier: &str,
-    no_cache: bool,
-) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+pub async fn get(opts: &GlobalOptions, team_identifier: &str) -> Result<()> {
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Resolve team ID
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
@@ -701,20 +685,17 @@ pub async fn get(
 // Create Command
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 /// Create a new team
 pub async fn create(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     name: &str,
     users: Option<Vec<String>>,
     apps: Option<Vec<String>>,
     dry_run: bool,
     force: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Validate non-empty name
     let name = name.trim();
@@ -852,15 +833,13 @@ pub async fn create(
 
 /// Rename a team
 pub async fn rename(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     new_name: &str,
     dry_run: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Validate non-empty name
     let new_name = new_name.trim();
@@ -969,15 +948,13 @@ pub async fn rename(
 
 /// Delete a team
 pub async fn delete(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     yes: bool,
     dry_run: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Resolve team ID and get details - use fresh read to ensure we have latest state before deletion
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
@@ -1053,18 +1030,15 @@ pub async fn delete(
 // ============================================================================
 
 /// Add users to a team
-#[allow(clippy::too_many_arguments)]
 pub async fn add_user(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut users: Vec<String>,
     stdin: bool,
     dry_run: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {
@@ -1171,19 +1145,16 @@ pub async fn add_user(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Remove users from a team
 pub async fn remove_user(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut users: Vec<String>,
     stdin: bool,
     dry_run: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {
@@ -1290,20 +1261,17 @@ pub async fn remove_user(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Replace all team members (SCIM sync)
 pub async fn set_users(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut users: Vec<String>,
     stdin: bool,
     dry_run: bool,
     yes: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {
@@ -1422,20 +1390,17 @@ pub async fn set_users(
 // Application Assignment Commands
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 /// Assign applications to a team
 pub async fn add_app(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut apps: Vec<String>,
     stdin: bool,
     dry_run: bool,
     force: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {
@@ -1579,19 +1544,16 @@ pub async fn add_app(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Remove applications from a team
 pub async fn remove_app(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut apps: Vec<String>,
     stdin: bool,
     dry_run: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {
@@ -1698,21 +1660,18 @@ pub async fn remove_app(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Replace all team application assignments
 pub async fn set_apps(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     team_identifier: &str,
     mut apps: Vec<String>,
     stdin: bool,
     dry_run: bool,
     yes: bool,
     force: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let (org_id, client) = setup_team_context(org_override, config_path, no_cache).await?;
+    let (org_id, client) = setup_team_context(opts).await?;
+    let format = opts.format;
 
     // Read from stdin if requested
     if stdin {

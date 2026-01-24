@@ -1,15 +1,16 @@
 //! User secret management commands
 
-use crate::cli::{CommandContext, OutputFormat};
+use crate::cli::CommandContext;
+use crate::cli::args::GlobalOptions;
 use crate::client::ListingApi;
 use crate::error::Result;
 use crate::models::SecretDisplay;
 use crate::output::Formattable;
 
 /// Run the secret list command
-pub async fn list(format: OutputFormat, config_path: Option<&str>, no_cache: bool) -> Result<()> {
-    // Secrets are user-scoped, not org-scoped, so no org_override needed
-    let ctx = CommandContext::new(format, None, config_path, no_cache).await?;
+pub async fn list(opts: &GlobalOptions) -> Result<()> {
+    // Secrets are user-scoped, not org-scoped
+    let ctx = CommandContext::new(opts).await?;
 
     let secrets = ctx.client.list_secrets().await?;
 

@@ -104,6 +104,20 @@ pub enum ConfigError {
         "Organization not configured. Run `hawkop org set <ORG_ID>` to set default organization."
     )]
     MissingOrgId,
+
+    #[error("Profile '{0}' not found. Run `hawkop profile list` to see available profiles.")]
+    ProfileNotFound(String),
+
+    #[error("Profile '{0}' already exists. Use a different name or delete the existing profile.")]
+    ProfileExists(String),
+
+    #[error(
+        "Cannot delete active profile '{0}'. Switch to another profile first with `hawkop profile use <other>`."
+    )]
+    CannotDeleteActive(String),
+
+    #[error("Cannot delete the 'default' profile. It serves as a fallback.")]
+    CannotDeleteDefault,
 }
 
 impl From<serde_yaml::Error> for ConfigError {

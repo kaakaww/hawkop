@@ -2,6 +2,7 @@
 
 use log::debug;
 
+use crate::cli::args::GlobalOptions;
 use crate::cli::{CommandContext, OutputFormat, PaginationArgs, ScanFilterArgs, SortDir};
 use crate::client::models::ScanResult;
 use crate::client::{
@@ -128,14 +129,11 @@ const PARALLEL_FETCH_LIMIT: usize = 32;
 
 /// Run the scan list command
 pub async fn list(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     filters: &ScanFilterArgs,
     pagination: &PaginationArgs,
-    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+    let ctx = CommandContext::new(opts).await?;
     let org_id = ctx.require_org_id()?;
 
     let display_limit = pagination.limit.unwrap_or(DEFAULT_SCAN_LIMIT);
@@ -396,9 +394,8 @@ fn get_new_findings(scan: &ScanResult) -> (u32, u32, u32) {
 /// - `scan get <id> --uri-id <u> -m` - URI detail with HTTP message
 #[allow(clippy::too_many_arguments)]
 pub async fn get(
+    opts: &GlobalOptions,
     format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
     scan_id: &str,
     app: Option<&str>,
     app_id: Option<&str>,
@@ -406,9 +403,17 @@ pub async fn get(
     plugin_id: Option<&str>,
     uri_id: Option<&str>,
     message: bool,
-    no_cache: bool,
 ) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+    // For scan get, use the command-level format override (defaults to Pretty)
+    let opts_with_format = GlobalOptions {
+        format,
+        org: opts.org.clone(),
+        config: opts.config.clone(),
+        profile: opts.profile.clone(),
+        no_cache: opts.no_cache,
+        api_host: opts.api_host.clone(),
+    };
+    let ctx = CommandContext::new(&opts_with_format).await?;
     let org_id = ctx.require_org_id()?;
 
     // Validate: can't use filters with specific scan ID
