@@ -77,7 +77,7 @@ pub struct Cli {
     #[arg(long, global = true, env = "HAWKOP_CONFIG", hide_env = true)]
     pub config: Option<String>,
 
-    /// Configuration profile to use (overrides active profile)
+    /// Configuration profile to use (for switching orgs, users, or API keys)
     #[arg(
         long,
         short = 'P',
@@ -164,7 +164,7 @@ pub enum Commands {
     #[command(subcommand)]
     Cache(CacheCommands),
 
-    /// Manage configuration profiles
+    /// Manage configuration profiles (for different orgs, users, or API keys)
     #[command(subcommand, visible_alias = "profiles")]
     Profile(ProfileCommands),
 
@@ -610,7 +610,7 @@ Examples:
     },
 }
 
-/// Profile management subcommands
+/// Profile management subcommands for switching between orgs, users, or API keys
 #[derive(Subcommand, Debug)]
 pub enum ProfileCommands {
     /// List all configuration profiles
@@ -619,8 +619,8 @@ pub enum ProfileCommands {
 
     /// Switch to a different profile
     #[command(after_help = "EXAMPLES:\n  \
-            hawkop profile use prod    # Switch to 'prod' profile\n  \
-            hawkop profile use test    # Switch to 'test' profile")]
+            hawkop profile use work      # Switch to 'work' profile\n  \
+            hawkop profile use personal  # Switch to 'personal' profile")]
     Use {
         /// Name of the profile to activate
         name: String,
@@ -628,8 +628,8 @@ pub enum ProfileCommands {
 
     /// Create a new profile
     #[command(after_help = "EXAMPLES:\n  \
-            hawkop profile create staging           # Interactive creation\n  \
-            hawkop profile create local --from prod # Copy from existing")]
+            hawkop profile create work             # Interactive creation\n  \
+            hawkop profile create backup --from work # Copy from existing")]
     Create {
         /// Name for the new profile
         name: String,

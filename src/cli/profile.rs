@@ -1,7 +1,7 @@
 //! Profile command implementations
 //!
 //! Manages configuration profiles for switching between different StackHawk
-//! environments (production, test, localhost, etc.).
+//! organizations, user accounts, or API keys.
 
 use colored::Colorize;
 use dialoguer::{Confirm, Password, Select, theme::ColorfulTheme};
