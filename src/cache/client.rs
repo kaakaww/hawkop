@@ -25,9 +25,14 @@ use crate::error::Result;
 /// Cache can be disabled via the `enabled` flag (for `--no-cache`).
 /// Cache operations run on Tokio's blocking thread pool to avoid blocking
 /// the async executor during SQLite I/O.
+///
+/// The API host is included in cache keys to prevent cross-environment
+/// cache contamination (e.g., when switching between prod and test).
 pub struct CachedStackHawkClient<C: AuthApi + ListingApi + ScanDetailApi> {
     inner: Arc<C>,
     cache: Option<Arc<Mutex<CacheStorage>>>,
+    /// API host used for cache key generation (prevents cross-environment cache hits)
+    api_host: Option<String>,
 }
 
 impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
@@ -36,7 +41,21 @@ impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
     /// # Arguments
     /// * `inner` - The underlying API client to wrap
     /// * `enabled` - Whether caching is enabled (false for --no-cache)
+    #[allow(dead_code)] // Keep for backwards compatibility
     pub fn new(inner: C, enabled: bool) -> Self {
+        Self::with_host(inner, enabled, None)
+    }
+
+    /// Create a new cached client wrapper with a specific API host.
+    ///
+    /// The API host is included in cache keys to prevent cross-environment
+    /// cache contamination when switching between different API hosts.
+    ///
+    /// # Arguments
+    /// * `inner` - The underlying API client to wrap
+    /// * `enabled` - Whether caching is enabled (false for --no-cache)
+    /// * `api_host` - The API host used for this client (included in cache keys)
+    pub fn with_host(inner: C, enabled: bool, api_host: Option<String>) -> Self {
         let cache = if enabled {
             CacheStorage::open().ok().map(|c| Arc::new(Mutex::new(c)))
         } else {
@@ -45,6 +64,7 @@ impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
         Self {
             inner: Arc::new(inner),
             cache,
+            api_host,
         }
     }
 
@@ -225,7 +245,7 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> AuthApi for CachedStackH
 #[async_trait]
 impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedStackHawkClient<C> {
     async fn list_orgs(&self) -> Result<Vec<Organization>> {
-        let key = cache_key("list_orgs", None, &[]);
+        let key = cache_key("list_orgs", self.api_host.as_deref(), None, &[]);
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_orgs");
@@ -244,7 +264,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<Application>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_apps", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_apps",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_apps");
@@ -263,7 +288,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<PagedResponse<Application>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_apps_paged", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_apps_paged",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_apps_paged");
@@ -290,7 +320,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
         let mut params = pagination_to_params(pagination);
         params.extend(scan_filters_to_params(filters));
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_scans", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_scans",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scans");
@@ -317,7 +352,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
         let mut params = pagination_to_params(pagination);
         params.extend(scan_filters_to_params(filters));
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_scans_paged", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_scans_paged",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scans_paged");
@@ -345,7 +385,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<User>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_users", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_users",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_users");
@@ -364,7 +409,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<Team>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_teams", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_teams",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_teams");
@@ -383,7 +433,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<PagedResponse<User>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_users_paged", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_users_paged",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_users_paged");
@@ -408,7 +463,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<PagedResponse<Team>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_teams_paged", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_teams_paged",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_teams_paged");
@@ -427,7 +487,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     }
 
     async fn list_stackhawk_policies(&self) -> Result<Vec<StackHawkPolicy>> {
-        let key = cache_key("list_stackhawk_policies", None, &[]);
+        let key = cache_key(
+            "list_stackhawk_policies",
+            self.api_host.as_deref(),
+            None,
+            &[],
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_stackhawk_policies");
@@ -452,7 +517,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<OrgPolicy>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_org_policies", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_org_policies",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_org_policies");
@@ -477,7 +547,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<Repository>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_repos", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_repos",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_repos");
@@ -496,7 +571,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<OASAsset>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_oas", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_oas",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_oas");
@@ -515,7 +595,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<ScanConfig>> {
         let params = pagination_to_params(pagination);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_scan_configs", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_scan_configs",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scan_configs");
@@ -534,7 +619,7 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
-        let key = cache_key("list_secrets", None, &[]);
+        let key = cache_key("list_secrets", self.api_host.as_deref(), None, &[]);
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_secrets");
@@ -553,7 +638,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
     ) -> Result<Vec<AuditRecord>> {
         let params = audit_filters_to_params(filters);
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_audit", Some(org_id), &params_ref);
+        let key = cache_key(
+            "list_audit",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_audit");
@@ -573,7 +663,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ListingApi for CachedSta
 #[async_trait]
 impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for CachedStackHawkClient<C> {
     async fn get_scan(&self, org_id: &str, scan_id: &str) -> Result<ScanResult> {
-        let key = cache_key("get_scan", Some(org_id), &[("scan_id", scan_id)]);
+        let key = cache_key(
+            "get_scan",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &[("scan_id", scan_id)],
+        );
 
         if let Some(cached) = self.get_cached::<ScanResult>(&key).await {
             log::debug!("Cache hit: get_scan");
@@ -601,7 +696,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for Cached
         let mut params = pagination_to_params(pagination);
         params.push(("scan_id", scan_id.to_string()));
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("list_scan_alerts", None, &params_ref);
+        let key = cache_key(
+            "list_scan_alerts",
+            self.api_host.as_deref(),
+            None,
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: list_scan_alerts");
@@ -623,7 +723,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for Cached
         params.push(("scan_id", scan_id.to_string()));
         params.push(("plugin_id", plugin_id.to_string()));
         let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let key = cache_key("get_alert_with_paths", None, &params_ref);
+        let key = cache_key(
+            "get_alert_with_paths",
+            self.api_host.as_deref(),
+            None,
+            &params_ref,
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: get_alert_with_paths");
@@ -657,7 +762,7 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for Cached
             ("message_id", message_id),
             ("include_curl", if include_curl { "true" } else { "false" }),
         ];
-        let key = cache_key("get_alert_message", None, &params);
+        let key = cache_key("get_alert_message", self.api_host.as_deref(), None, &params);
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: get_alert_message");
@@ -691,7 +796,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + 'static> TeamApi
 {
     /// Get team details - cached with short TTL since team membership changes
     async fn get_team(&self, org_id: &str, team_id: &str) -> Result<TeamDetail> {
-        let key = cache_key("get_team", Some(org_id), &[("team_id", team_id)]);
+        let key = cache_key(
+            "get_team",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &[("team_id", team_id)],
+        );
 
         if let Some(cached) = self.get_cached(&key).await {
             log::debug!("Cache hit: get_team");
@@ -712,7 +822,12 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + 'static> TeamApi
         let result = self.inner.get_team(org_id, team_id).await?;
 
         // Still cache the fresh result for subsequent reads
-        let key = cache_key("get_team", Some(org_id), &[("team_id", team_id)]);
+        let key = cache_key(
+            "get_team",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &[("team_id", team_id)],
+        );
         self.set_cached(&key, &result, "get_team", Some(org_id), CacheTtl::TEAMS);
 
         Ok(result)
@@ -781,6 +896,7 @@ mod tests {
         let client = CachedStackHawkClient {
             inner: Arc::new(mock),
             cache,
+            api_host: None, // Default to None for tests
         };
 
         (client, temp_dir)

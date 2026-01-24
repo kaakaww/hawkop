@@ -2,7 +2,8 @@
 
 use log::debug;
 
-use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
+use crate::cli::args::GlobalOptions;
+use crate::cli::{CommandContext, PaginationArgs};
 use crate::client::ListingApi;
 use crate::error::Result;
 use crate::models::PolicyDisplay;
@@ -12,14 +13,8 @@ use crate::output::Formattable;
 ///
 /// Fetches both StackHawk preset policies and organization custom policies,
 /// combining them into a single list with type indicators.
-pub async fn list(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
-    pagination: &PaginationArgs,
-    no_cache: bool,
-) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+pub async fn list(opts: &GlobalOptions, pagination: &PaginationArgs) -> Result<()> {
+    let ctx = CommandContext::new(opts).await?;
     let org_id = ctx.require_org_id()?;
 
     // Fetch both policy types in parallel

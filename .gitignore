@@ -26,6 +26,7 @@ Thumbs.db
 # Config files (may contain secrets)
 .hawkop/
 config.yaml
+.env
 
 # Build artifacts
 /dist/

@@ -16,7 +16,8 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::cache::CachedStackHawkClient;
-use crate::cli::{CommandContext, OutputFormat, PaginationArgs};
+use crate::cli::args::GlobalOptions;
+use crate::cli::{CommandContext, PaginationArgs};
 use crate::client::{PaginationParams, StackHawkClient};
 use crate::error::Result;
 use crate::output::Formattable;
@@ -33,11 +34,8 @@ use crate::output::Formattable;
 ///
 /// # Arguments
 ///
-/// * `format` - Output format (table or JSON)
-/// * `org_override` - Optional org ID override
-/// * `config_path` - Optional config file path
+/// * `opts` - Global CLI options (format, org override, config path, etc.)
 /// * `pagination` - Pagination arguments from CLI
-/// * `no_cache` - Whether to bypass cache
 /// * `resource_name` - Name for debug logging (e.g., "users", "teams")
 /// * `fetcher` - Async function that fetches the data given (client, org_id, params)
 ///
@@ -45,11 +43,8 @@ use crate::output::Formattable;
 ///
 /// ```ignore
 /// run_list_command::<User, UserDisplay, _, _>(
-///     format,
-///     org_override,
-///     config_path,
+///     opts,
 ///     pagination,
-///     no_cache,
 ///     "users",
 ///     |client, org_id, params| async move {
 ///         client.list_users(&org_id, Some(&params)).await
@@ -57,11 +52,8 @@ use crate::output::Formattable;
 /// ).await
 /// ```
 pub async fn run_list_command<T, D, Fut, F>(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
+    opts: &GlobalOptions,
     pagination: &PaginationArgs,
-    no_cache: bool,
     resource_name: &str,
     fetcher: F,
 ) -> Result<()>
@@ -71,7 +63,7 @@ where
     Fut: Future<Output = Result<Vec<T>>>,
     F: FnOnce(Arc<CachedStackHawkClient<StackHawkClient>>, String, PaginationParams) -> Fut,
 {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+    let ctx = CommandContext::new(opts).await?;
     let org_id = ctx.require_org_id()?;
 
     debug!("Fetching {} for org {}", resource_name, org_id);

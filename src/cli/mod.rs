@@ -20,6 +20,7 @@ pub mod init;
 pub mod oas;
 pub mod org;
 pub mod policy;
+pub mod profile;
 pub mod repo;
 pub mod scan;
 pub mod secret;
@@ -76,6 +77,16 @@ pub struct Cli {
     #[arg(long, global = true, env = "HAWKOP_CONFIG", hide_env = true)]
     pub config: Option<String>,
 
+    /// Configuration profile to use (for switching orgs, users, or API keys)
+    #[arg(
+        long,
+        short = 'P',
+        global = true,
+        env = "HAWKOP_PROFILE",
+        hide_env = true
+    )]
+    pub profile: Option<String>,
+
     /// Enable debug logging
     #[arg(long, global = true, env = "HAWKOP_DEBUG", hide_env = true)]
     pub debug: bool,
@@ -83,6 +94,14 @@ pub struct Cli {
     /// Bypass cache, fetch fresh data from API
     #[arg(long, global = true, env = "HAWKOP_NO_CACHE", hide_env = true)]
     pub no_cache: bool,
+
+    /// Custom API host for development/testing (hidden developer option)
+    ///
+    /// Overrides the default StackHawk API host. The v1 and v2 paths are
+    /// computed automatically (e.g., "http://localhost:8080" becomes
+    /// "http://localhost:8080/api/v1" and "http://localhost:8080/api/v2").
+    #[arg(long = "api-host", global = true, env = "HAWKOP_API_HOST", hide = true)]
+    pub api_host: Option<String>,
 }
 
 /// Available CLI commands
@@ -144,6 +163,10 @@ pub enum Commands {
     /// Manage local response cache
     #[command(subcommand)]
     Cache(CacheCommands),
+
+    /// Manage configuration profiles (for different orgs, users, or API keys)
+    #[command(subcommand, visible_alias = "profiles")]
+    Profile(ProfileCommands),
 
     /// Generate shell completions (static)
     #[command(after_help = "\
@@ -584,5 +607,57 @@ Examples:
     List {
         #[command(flatten)]
         filters: AuditFilterArgs,
+    },
+}
+
+/// Profile management subcommands for switching between orgs, users, or API keys
+#[derive(Subcommand, Debug)]
+pub enum ProfileCommands {
+    /// List all configuration profiles
+    #[command(visible_alias = "ls")]
+    List,
+
+    /// Switch to a different profile
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop profile use work      # Switch to 'work' profile\n  \
+            hawkop profile use personal  # Switch to 'personal' profile")]
+    Use {
+        /// Name of the profile to activate
+        name: String,
+    },
+
+    /// Create a new profile
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop profile create work             # Interactive creation\n  \
+            hawkop profile create backup --from work # Copy from existing")]
+    Create {
+        /// Name for the new profile
+        name: String,
+
+        /// Copy settings from an existing profile
+        #[arg(long)]
+        from: Option<String>,
+    },
+
+    /// Delete a profile
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop profile delete old-test       # With confirmation\n  \
+            hawkop profile delete staging --yes  # Skip confirmation")]
+    Delete {
+        /// Name of the profile to delete
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Show profile details
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop profile show        # Show active profile\n  \
+            hawkop profile show prod   # Show specific profile")]
+    Show {
+        /// Profile name (defaults to active profile)
+        name: Option<String>,
     },
 }

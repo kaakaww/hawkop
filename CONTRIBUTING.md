@@ -358,6 +358,40 @@ Include:
 4. Address feedback
 5. Merge when approved and CI passes
 
+## Development API Hosts
+
+For testing against non-production environments, you can configure a custom API host.
+
+### Environment Variable
+
+```bash
+export HAWKOP_API_HOST=http://localhost:8080
+```
+
+### Config File
+
+Add to `~/.hawkop/config.yaml`:
+
+```yaml
+api_host: "http://localhost:8080"
+```
+
+### CLI Flag (hidden)
+
+The `--api-host` flag is available but hidden from `--help` (developer feature):
+
+```bash
+hawkop --api-host http://localhost:8080 org list
+```
+
+### Precedence
+
+CLI flag > Environment variable > Config file > Default (`https://api.stackhawk.com`)
+
+The v1 and v2 API paths are computed automatically from the host:
+- `{api_host}/api/v1`
+- `{api_host}/api/v2`
+
 ## Getting Help
 
 - **Issues**: https://github.com/kaakaww/hawkop/issues

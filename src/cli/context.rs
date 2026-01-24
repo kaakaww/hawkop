@@ -7,25 +7,36 @@ use std::sync::Arc;
 
 use crate::cache::CachedStackHawkClient;
 use crate::cli::OutputFormat;
+use crate::cli::args::GlobalOptions;
 use crate::client::models::JwtToken;
 use crate::client::{AuthApi, StackHawkClient};
-use crate::config::Config;
+use crate::config::{ProfileConfig, ProfiledConfig};
 use crate::error::Result;
 
 /// Context for command execution containing config, client, and runtime options.
 ///
 /// This struct encapsulates all shared state needed by commands, providing:
-/// - Loaded and validated configuration
+/// - Loaded configuration with resolved profile
 /// - Authenticated API client with JWT set (wrapped in Arc for parallel requests)
 /// - Output format preference
-/// - Resolved organization ID (from config or override)
+/// - Current profile information
+/// - Resolved API host (for display in status command)
 pub struct CommandContext {
-    /// Loaded and validated configuration
-    pub config: Config,
+    /// Full profiled configuration (for saving updates)
+    pub profiled_config: ProfiledConfig,
+    /// Current profile settings (convenience accessor)
+    pub profile: ProfileConfig,
+    /// Name of the active profile
+    pub profile_name: String,
     /// Authenticated API client with caching (Arc-wrapped for parallel request support)
     pub client: Arc<CachedStackHawkClient<StackHawkClient>>,
     /// Output format preference
     pub format: OutputFormat,
+    /// Resolved API host (for display purposes, e.g., in status command)
+    #[allow(dead_code)]
+    pub api_host: Option<String>,
+    /// Config file path (for saving updates)
+    pub config_path: Option<String>,
 }
 
 impl CommandContext {
@@ -33,40 +44,50 @@ impl CommandContext {
     ///
     /// This handles:
     /// - Loading config from path (or default location)
+    /// - Resolving the active profile (from override or config)
     /// - Applying org_id override if provided
+    /// - Resolving API host (CLI > profile)
     /// - Validating authentication (API key present)
     /// - Creating the API client with caching wrapper
     /// - Authenticating and caching JWT token
     ///
     /// # Arguments
-    /// * `format` - Output format (table/json)
-    /// * `org_override` - Optional organization ID to override config
-    /// * `config_path` - Optional path to config file (defaults to ~/.hawkop/config.yaml)
-    /// * `no_cache` - Whether to bypass the response cache
+    /// * `opts` - Global CLI options containing format, org override, config path, etc.
     ///
     /// # Errors
     /// Returns error if config cannot be loaded or authentication is invalid.
-    pub async fn new(
-        format: OutputFormat,
-        org_override: Option<&str>,
-        config_path: Option<&str>,
-        no_cache: bool,
-    ) -> Result<Self> {
-        let mut config = Config::load_at(config_path)?;
-        config.validate_auth()?;
+    pub async fn new(opts: &GlobalOptions) -> Result<Self> {
+        let mut profiled_config = ProfiledConfig::load_at(opts.config_ref())?;
+
+        // Resolve which profile to use
+        let (profile_name, _profile_ref) = profiled_config.resolve_profile(opts.profile_ref())?;
+        log::debug!("Using profile: {}", profile_name);
+
+        // Get a mutable copy of the profile for modifications
+        let mut profile = profiled_config.get_profile(&profile_name)?.clone();
+
+        // Validate authentication
+        profile.validate_auth()?;
 
         // Apply org override if provided
-        if let Some(org) = org_override {
-            config.org_id = Some(org.to_string());
+        if let Some(org) = opts.org_ref() {
+            profile.org_id = Some(org.to_string());
         }
 
+        // Resolve API host: CLI flag > profile setting (env var is handled in client)
+        let resolved_api_host = opts
+            .api_host_ref()
+            .map(|s| s.to_string())
+            .or_else(|| profile.api_host.clone());
+
         // Create the raw client first (need to set JWT before wrapping)
-        let raw_client = StackHawkClient::new(config.api_key.clone())?;
+        let raw_client =
+            StackHawkClient::with_host(profile.api_key.clone(), resolved_api_host.clone())?;
 
         // Use cached JWT if valid, otherwise authenticate and cache
-        if !config.is_token_expired() {
+        if !profile.is_token_expired() {
             // Use cached token
-            if let Some(ref jwt) = config.jwt {
+            if let Some(ref jwt) = profile.jwt {
                 raw_client
                     .set_jwt(JwtToken {
                         token: jwt.token.clone(),
@@ -76,27 +97,41 @@ impl CommandContext {
             }
         } else {
             // Authenticate and cache the new token
-            let api_key = config.api_key.as_ref().expect("validated above");
+            let api_key = profile.api_key.as_ref().expect("validated above");
             let jwt = raw_client.authenticate(api_key).await?;
 
-            // Save to config for future runs
-            config.jwt = Some(crate::config::JwtToken {
+            // Save to profile for future runs
+            profile.jwt = Some(crate::config::JwtToken {
                 token: jwt.token.clone(),
                 expires_at: jwt.expires_at,
             });
-            config.save_at(config_path)?;
+
+            // Update the profile in the config and save
+            if let Ok(stored_profile) = profiled_config.get_profile_mut(&profile_name) {
+                stored_profile.jwt = profile.jwt.clone();
+            }
+            profiled_config.save_at(opts.config_ref())?;
 
             // Set on client
             raw_client.set_jwt(jwt).await;
         }
 
         // Wrap with caching layer (disabled if --no-cache)
-        let client = Arc::new(CachedStackHawkClient::new(raw_client, !no_cache));
+        // Pass API host to cache layer to prevent cross-environment cache hits
+        let client = Arc::new(CachedStackHawkClient::with_host(
+            raw_client,
+            !opts.no_cache,
+            resolved_api_host.clone(),
+        ));
 
         Ok(Self {
-            config,
+            profiled_config,
+            profile,
+            profile_name,
             client,
-            format,
+            format: opts.format,
+            api_host: resolved_api_host,
+            config_path: opts.config.clone(),
         })
     }
 
@@ -104,7 +139,7 @@ impl CommandContext {
     ///
     /// Use this when a command requires an organization ID.
     pub fn require_org_id(&self) -> Result<&str> {
-        self.config
+        self.profile
             .org_id
             .as_deref()
             .ok_or_else(|| crate::error::ConfigError::MissingOrgId.into())
@@ -113,6 +148,11 @@ impl CommandContext {
     /// Get the organization ID if set.
     #[allow(dead_code)]
     pub fn org_id(&self) -> Option<&str> {
-        self.config.org_id.as_deref()
+        self.profile.org_id.as_deref()
+    }
+
+    /// Save the current configuration to disk
+    pub fn save_config(&self) -> Result<()> {
+        self.profiled_config.save_at(self.config_path.as_deref())
     }
 }

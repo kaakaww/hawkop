@@ -75,9 +75,17 @@ fn base64_decode_url(input: &str) -> std::result::Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// StackHawk API base URLs
-const API_BASE_URL_V1: &str = "https://api.stackhawk.com/api/v1";
-const API_BASE_URL_V2: &str = "https://api.stackhawk.com/api/v2";
+/// Default StackHawk API host
+const DEFAULT_API_HOST: &str = "https://api.stackhawk.com";
+
+/// Compute v1 and v2 base URLs from an API host.
+///
+/// The host should be in the format "https://api.example.com" (no trailing slash).
+/// This returns tuple of (base_url_v1, base_url_v2).
+fn compute_base_urls(host: &str) -> (String, String) {
+    let host = host.trim_end_matches('/');
+    (format!("{}/api/v1", host), format!("{}/api/v2", host))
+}
 
 /// StackHawk API client
 pub struct StackHawkClient {
@@ -98,17 +106,47 @@ struct AuthState {
 }
 
 impl StackHawkClient {
-    /// Create a new StackHawk API client
+    /// Create a new StackHawk API client with the default API host.
+    ///
+    /// Uses the default production StackHawk API (https://api.stackhawk.com).
+    /// For custom API hosts (e.g., development environments), use `with_host()`.
     pub fn new(api_key: Option<String>) -> Result<Self> {
+        Self::with_host(api_key, None)
+    }
+
+    /// Create a new StackHawk API client with a custom API host.
+    ///
+    /// The `api_host` should be in the format "https://api.example.com" (no trailing slash
+    /// or path). If `None`, falls back to the `HAWKOP_API_HOST` environment variable,
+    /// then to the default production API host.
+    ///
+    /// # Arguments
+    /// * `api_key` - Optional API key for authentication
+    /// * `api_host` - Optional custom API host (e.g., "http://localhost:8080")
+    ///
+    /// # Examples
+    /// ```
+    /// // Use default production API
+    /// let client = StackHawkClient::new(Some("my-api-key".to_string()))?;
+    ///
+    /// // Use custom API host for development
+    /// let client = StackHawkClient::with_host(
+    ///     Some("my-api-key".to_string()),
+    ///     Some("http://localhost:8080".to_string())
+    /// )?;
+    /// ```
+    pub fn with_host(api_key: Option<String>, api_host: Option<String>) -> Result<Self> {
         let http = HttpClient::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
-        let base_url_v1 =
-            std::env::var("HAWKOP_API_BASE_URL").unwrap_or_else(|_| API_BASE_URL_V1.to_string());
-        let base_url_v2 =
-            std::env::var("HAWKOP_API_BASE_URL_V2").unwrap_or_else(|_| API_BASE_URL_V2.to_string());
+        // Resolve API host: explicit param > env var > default
+        let host = api_host
+            .or_else(|| std::env::var("HAWKOP_API_HOST").ok())
+            .unwrap_or_else(|| DEFAULT_API_HOST.to_string());
+
+        let (base_url_v1, base_url_v2) = compute_base_urls(&host);
 
         Ok(Self {
             http,
@@ -121,6 +159,12 @@ impl StackHawkClient {
                 jwt_expires_at: None,
             })),
         })
+    }
+
+    /// Get the base URL v1 (useful for debugging/display)
+    #[allow(dead_code)]
+    pub fn base_url_v1(&self) -> &str {
+        &self.base_url_v1
     }
 
     /// Set the JWT token and expiry
@@ -1451,11 +1495,37 @@ impl TeamApi for StackHawkClient {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_compute_base_urls() {
+        let (v1, v2) = compute_base_urls("https://api.example.com");
+        assert_eq!(v1, "https://api.example.com/api/v1");
+        assert_eq!(v2, "https://api.example.com/api/v2");
+    }
+
+    #[test]
+    fn test_compute_base_urls_strips_trailing_slash() {
+        let (v1, v2) = compute_base_urls("http://localhost:8080/");
+        assert_eq!(v1, "http://localhost:8080/api/v1");
+        assert_eq!(v2, "http://localhost:8080/api/v2");
+    }
+
     #[cfg_attr(target_os = "macos", ignore)]
     #[test]
     fn test_client_creation() {
         let client = StackHawkClient::new(Some("test_key".to_string()));
         assert!(client.is_ok());
+    }
+
+    #[cfg_attr(target_os = "macos", ignore)]
+    #[test]
+    fn test_client_with_custom_host() {
+        let client = StackHawkClient::with_host(
+            Some("test_key".to_string()),
+            Some("http://localhost:8080".to_string()),
+        );
+        assert!(client.is_ok());
+        let client = client.unwrap();
+        assert_eq!(client.base_url_v1(), "http://localhost:8080/api/v1");
     }
 
     #[cfg_attr(target_os = "macos", ignore)]

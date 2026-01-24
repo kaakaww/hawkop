@@ -43,7 +43,7 @@ fn status_uses_custom_config_path() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn org_get_prefers_runtime_org_override() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     let _orgs = server
         .mock("GET", "/api/v1/user")
@@ -71,8 +71,7 @@ fn org_get_prefers_runtime_org_override() -> Result<(), Box<dyn std::error::Erro
         .arg("override-org")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .success();
 
@@ -87,7 +86,7 @@ fn org_get_prefers_runtime_org_override() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn org_set_updates_custom_config_path() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     let _orgs = server
         .mock("GET", "/api/v1/user")
@@ -115,8 +114,7 @@ fn org_set_updates_custom_config_path() -> Result<(), Box<dyn std::error::Error>
         .arg("new-org")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .success();
 
@@ -129,8 +127,7 @@ fn org_set_updates_custom_config_path() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn app_list_uses_v2_base_url() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
-    let base_v2 = format!("{}/api/v2", server.url());
+    let api_host = server.url();
 
     let _orgs = server
         .mock("GET", "/api/v1/user")
@@ -172,8 +169,7 @@ fn app_list_uses_v2_base_url() -> Result<(), Box<dyn std::error::Error>> {
         .arg(&config_path)
         .arg("--format")
         .arg("json")
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env("HAWKOP_API_BASE_URL_V2", base_v2)
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .success();
 
@@ -221,7 +217,7 @@ fn missing_config_shows_helpful_error() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn invalid_org_id_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     // Mock user endpoint to return orgs that don't include the requested one
     let _orgs = server
@@ -251,8 +247,7 @@ fn invalid_org_id_returns_not_found() -> Result<(), Box<dyn std::error::Error>> 
         .arg("nonexistent-org-xyz")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .failure();
 
@@ -277,7 +272,7 @@ fn invalid_org_id_returns_not_found() -> Result<(), Box<dyn std::error::Error>> 
 #[test]
 fn unauthorized_error_suggests_init() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     // Mock user endpoint to return 401 (unauthorized)
     // This simulates an invalid/expired JWT token
@@ -303,8 +298,7 @@ fn unauthorized_error_suggests_init() -> Result<(), Box<dyn std::error::Error>> 
         .arg("list")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .failure();
 
@@ -324,7 +318,7 @@ fn unauthorized_error_suggests_init() -> Result<(), Box<dyn std::error::Error>> 
 #[test]
 fn rate_limit_shows_retry_message() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     // Mock user endpoint to always return 429
     // The client will retry with exponential backoff, but eventually give up
@@ -344,8 +338,7 @@ fn rate_limit_shows_retry_message() -> Result<(), Box<dyn std::error::Error>> {
         .arg("list")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .failure();
 
@@ -365,7 +358,7 @@ fn rate_limit_shows_retry_message() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn server_error_shows_helpful_message() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
-    let base_v1 = format!("{}/api/v1", server.url());
+    let api_host = server.url();
 
     // Mock user endpoint to return 500
     let _server_error = server
@@ -383,8 +376,7 @@ fn server_error_shows_helpful_message() -> Result<(), Box<dyn std::error::Error>
         .arg("list")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", base_v1)
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", &api_host)
         .assert()
         .failure();
 
@@ -414,8 +406,7 @@ fn connection_error_shows_network_message() -> Result<(), Box<dyn std::error::Er
         .arg("list")
         .arg("--config")
         .arg(&config_path)
-        .env("HAWKOP_API_BASE_URL", "http://127.0.0.1:59999/api/v1")
-        .env_remove("HAWKOP_API_BASE_URL_V2")
+        .env("HAWKOP_API_HOST", "http://127.0.0.1:59999")
         .assert()
         .failure();
 

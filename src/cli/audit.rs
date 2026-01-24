@@ -2,7 +2,8 @@
 
 use chrono::{Duration, Utc};
 
-use crate::cli::{AuditFilterArgs, CommandContext, OutputFormat, SortDir};
+use crate::cli::args::GlobalOptions;
+use crate::cli::{AuditFilterArgs, CommandContext, SortDir};
 use crate::client::ListingApi;
 use crate::client::models::AuditFilterParams;
 use crate::error::Result;
@@ -10,14 +11,8 @@ use crate::models::AuditDisplay;
 use crate::output::Formattable;
 
 /// Run the audit list command
-pub async fn list(
-    format: OutputFormat,
-    org_override: Option<&str>,
-    config_path: Option<&str>,
-    filters: &AuditFilterArgs,
-    no_cache: bool,
-) -> Result<()> {
-    let ctx = CommandContext::new(format, org_override, config_path, no_cache).await?;
+pub async fn list(opts: &GlobalOptions, filters: &AuditFilterArgs) -> Result<()> {
+    let ctx = CommandContext::new(opts).await?;
 
     // Convert CLI args to API filter params
     let api_filters = build_filter_params(filters)?;
