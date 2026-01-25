@@ -126,17 +126,8 @@ fn test_team_rename_missing_args_shows_help() {
     );
 }
 
-#[test]
-#[cfg_attr(not(feature = "functional-tests"), ignore)]
-fn test_scan_get_missing_id_shows_help() {
-    let ctx = FunctionalTestContext::new();
-
-    ctx.run(&["scan", "get"]).failure().stderr(
-        predicate::str::contains("Usage")
-            .or(predicate::str::contains("required"))
-            .or(predicate::str::contains("argument")),
-    );
-}
+// NOTE: test_scan_get_missing_id_shows_help was removed because
+// `scan get` without an ID correctly shows the latest scan (not an error)
 
 // ============================================================================
 // Invalid Command/Subcommand Errors

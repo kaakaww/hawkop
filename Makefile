@@ -208,7 +208,7 @@ functional-test:
 	fi
 	@echo "$(YELLOW)Using profile: $$HAWKOP_PROFILE$(NC)"
 	@echo ""
-	cargo test --features functional-tests --test functional -- --test-threads=1
+	cargo test --features functional-tests --test functional -- --test-threads=1 --nocapture
 
 ## functional-test-dry-run: Preview functional tests (list only, no execution)
 functional-test-dry-run:

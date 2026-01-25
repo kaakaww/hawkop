@@ -171,6 +171,45 @@ impl FunctionalTestContext {
 
         String::from_utf8_lossy(&output.stderr).to_string()
     }
+
+    /// Execute command that may require a feature flag.
+    ///
+    /// If the command fails with "Access denied" (indicating missing feature flag),
+    /// this will print a warning and pass the test. Otherwise, it expects success.
+    ///
+    /// This allows tests to pass in environments where the feature isn't enabled,
+    /// while still validating the command works when the feature IS available.
+    pub fn run_feature_flag_dependent(&self, args: &[&str], feature_name: &str) {
+        let output = self
+            .command(args)
+            .output()
+            .expect("Failed to execute command");
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if !output.status.success() {
+            if stderr.contains("Access denied") {
+                eprintln!(
+                    "\n⚠️  SKIPPED: {} command requires '{}' feature flag",
+                    args.join(" "),
+                    feature_name
+                );
+                eprintln!("   This feature may not be enabled for the test organization.");
+                let first_line = stderr.lines().next().unwrap_or("Access denied");
+                // Strip "Error: " prefix if present to avoid "Error: Error:"
+                let error_msg = first_line.strip_prefix("Error: ").unwrap_or(first_line);
+                eprintln!("   Error: {}", error_msg);
+                return; // Pass the test - feature not available
+            }
+            // Some other error - fail the test
+            panic!(
+                "Command failed (not due to feature flag): hawkop {}\nstderr: {}",
+                args.join(" "),
+                stderr
+            );
+        }
+        // Command succeeded - feature is available and working
+    }
 }
 
 impl Default for FunctionalTestContext {

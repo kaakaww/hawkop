@@ -87,6 +87,34 @@ fn compute_base_urls(host: &str) -> (String, String) {
     (format!("{}/api/v1", host), format!("{}/api/v2", host))
 }
 
+/// Generate a helpful error message for bad requests.
+///
+/// When the API returns an empty error body, we try to provide contextual
+/// information based on the request path to help users diagnose the issue.
+fn bad_request_message(path: &str, error_body: String) -> String {
+    // If the API provided a message, use it
+    let trimmed = error_body.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    // Check if this looks like an org-related request with invalid org ID
+    // Patterns: /org/{org-id}/... or /api/v1/org/{org-id}/...
+    if let Some(org_start) = path.find("/org/") {
+        let after_org = &path[org_start + 5..]; // Skip "/org/"
+        if let Some(end) = after_org.find('/') {
+            let org_id = &after_org[..end];
+            return format!(
+                "Invalid or inaccessible organization '{}'. Run `hawkop org list` to see available organizations.",
+                org_id
+            );
+        }
+    }
+
+    // Default message when we can't provide specific guidance
+    "Invalid request (no details provided by API)".to_string()
+}
+
 /// StackHawk API client
 pub struct StackHawkClient {
     http: HttpClient,
@@ -460,10 +488,8 @@ impl StackHawkClient {
                 .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
@@ -605,10 +631,8 @@ impl StackHawkClient {
                 .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
@@ -806,10 +830,8 @@ impl StackHawkClient {
                 .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
