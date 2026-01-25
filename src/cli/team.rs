@@ -1056,7 +1056,22 @@ pub async fn add_user(
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
     let team = client.get_team_fresh(&org_id, &team_id).await?;
 
-    // Resolve user IDs
+    // Early exit for dry-run: show preview without validating user existence
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!(
+            "Would add {} user(s) to team \"{}\":",
+            users.len(),
+            team.name
+        );
+        for user in &users {
+            eprintln!("  • {}", user);
+        }
+        return Ok(());
+    }
+
+    // Resolve user IDs (only when not dry-run)
     let new_user_ids = resolve_users(client.clone(), &org_id, &users).await?;
 
     // Get current member IDs
@@ -1068,27 +1083,6 @@ pub async fn add_user(
         .filter(|id| !current_ids.contains(*id))
         .cloned()
         .collect();
-
-    if dry_run {
-        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
-        eprintln!();
-        eprintln!(
-            "Would add {} user(s) to team \"{}\":",
-            users_to_add.len(),
-            team.name
-        );
-        for id in &users_to_add {
-            eprintln!("  • {}", id);
-        }
-        if users_to_add.len() < new_user_ids.len() {
-            eprintln!(
-                "\n{} {} user(s) already in team (skipped)",
-                "ℹ".blue(),
-                new_user_ids.len() - users_to_add.len()
-            );
-        }
-        return Ok(());
-    }
 
     if users_to_add.is_empty() {
         eprintln!(
@@ -1172,7 +1166,22 @@ pub async fn remove_user(
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
     let team = client.get_team_fresh(&org_id, &team_id).await?;
 
-    // Resolve user IDs to remove
+    // Early exit for dry-run: show preview without validating user existence
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!(
+            "Would remove {} user(s) from team \"{}\":",
+            users.len(),
+            team.name
+        );
+        for user in &users {
+            eprintln!("  • {}", user);
+        }
+        return Ok(());
+    }
+
+    // Resolve user IDs to remove (only when not dry-run)
     let remove_ids: HashSet<_> = resolve_users(client.clone(), &org_id, &users)
         .await?
         .into_iter()
@@ -1187,28 +1196,6 @@ pub async fn remove_user(
         .collect();
 
     let actually_removing = current_ids.len() - remaining_ids.len();
-
-    if dry_run {
-        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
-        eprintln!();
-        eprintln!(
-            "Would remove {} user(s) from team \"{}\":",
-            actually_removing, team.name
-        );
-        for id in &remove_ids {
-            if current_ids.contains(id) {
-                eprintln!("  • {}", id);
-            }
-        }
-        if actually_removing < remove_ids.len() {
-            eprintln!(
-                "\n{} {} user(s) not in team (ignored)",
-                "ℹ".blue(),
-                remove_ids.len() - actually_removing
-            );
-        }
-        return Ok(());
-    }
 
     if actually_removing == 0 {
         eprintln!(
@@ -1418,7 +1405,22 @@ pub async fn add_app(
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
     let team = client.get_team_fresh(&org_id, &team_id).await?;
 
-    // Resolve app IDs
+    // Early exit for dry-run: show preview without validating app existence
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!(
+            "Would assign {} application(s) to team \"{}\":",
+            apps.len(),
+            team.name
+        );
+        for app in &apps {
+            eprintln!("  • {}", app);
+        }
+        return Ok(());
+    }
+
+    // Resolve app IDs (only when not dry-run)
     let new_app_ids = resolve_apps(client.clone(), &org_id, &apps).await?;
 
     // Get current app IDs
@@ -1462,27 +1464,6 @@ pub async fn add_app(
                 dup_list, first_dup.2, first_dup.0
             )));
         }
-    }
-
-    if dry_run {
-        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
-        eprintln!();
-        eprintln!(
-            "Would assign {} application(s) to team \"{}\":",
-            apps_to_add.len(),
-            team.name
-        );
-        for id in &apps_to_add {
-            eprintln!("  • {}", id);
-        }
-        if apps_to_add.len() < new_app_ids.len() {
-            eprintln!(
-                "\n{} {} application(s) already assigned (skipped)",
-                "ℹ".blue(),
-                new_app_ids.len() - apps_to_add.len()
-            );
-        }
-        return Ok(());
     }
 
     if apps_to_add.is_empty() {
@@ -1571,7 +1552,22 @@ pub async fn remove_app(
     let team_id = resolve_team(client.clone(), &org_id, team_identifier).await?;
     let team = client.get_team_fresh(&org_id, &team_id).await?;
 
-    // Resolve app IDs to remove
+    // Early exit for dry-run: show preview without validating app existence
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!(
+            "Would unassign {} application(s) from team \"{}\":",
+            apps.len(),
+            team.name
+        );
+        for app in &apps {
+            eprintln!("  • {}", app);
+        }
+        return Ok(());
+    }
+
+    // Resolve app IDs to remove (only when not dry-run)
     let remove_ids: HashSet<_> = resolve_apps(client.clone(), &org_id, &apps)
         .await?
         .into_iter()
@@ -1590,28 +1586,6 @@ pub async fn remove_app(
         .collect();
 
     let actually_removing = current_ids.len() - remaining_ids.len();
-
-    if dry_run {
-        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
-        eprintln!();
-        eprintln!(
-            "Would unassign {} application(s) from team \"{}\":",
-            actually_removing, team.name
-        );
-        for id in &remove_ids {
-            if current_ids.contains(id) {
-                eprintln!("  • {}", id);
-            }
-        }
-        if actually_removing < remove_ids.len() {
-            eprintln!(
-                "\n{} {} application(s) not assigned (ignored)",
-                "ℹ".blue(),
-                remove_ids.len() - actually_removing
-            );
-        }
-        return Ok(());
-    }
 
     if actually_removing == 0 {
         eprintln!(

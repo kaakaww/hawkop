@@ -42,6 +42,9 @@ pub enum ApiError {
     #[error("Authentication failed. Run `hawkop init` to set up your API key.")]
     Unauthorized,
 
+    #[error("{0}")]
+    UnauthorizedFeature(String),
+
     #[error("Access denied. You don't have permission to access this resource.")]
     Forbidden,
 
@@ -79,6 +82,36 @@ impl From<reqwest::Error> for ApiError {
         } else {
             ApiError::Network(err.to_string())
         }
+    }
+}
+
+impl ApiError {
+    /// Create an UnauthorizedFeature error with a formatted message
+    ///
+    /// This is used when a 401 is received after a successful token refresh,
+    /// indicating the issue is authorization (feature/role) not authentication.
+    pub fn unauthorized_feature(endpoint: Option<&str>, role: Option<&str>) -> Self {
+        let mut msg = String::from("Access denied. ");
+
+        if let Some(ep) = endpoint {
+            msg.push_str(&format!("The endpoint '{}' ", ep));
+        } else {
+            msg.push_str("This feature ");
+        }
+
+        msg.push_str(
+            "may require a feature flag not enabled for your organization, \
+             or elevated privileges.\n\n",
+        );
+
+        let role_display = role.unwrap_or("Unknown");
+        msg.push_str(&format!("Your current role: {}\n\n", role_display));
+
+        msg.push_str("Possible causes:\n");
+        msg.push_str("  • This feature requires a plan upgrade or feature flag\n");
+        msg.push_str("  • Your role may not have access (Owner/Admin/Member)");
+
+        ApiError::UnauthorizedFeature(msg)
     }
 }
 
@@ -209,6 +242,41 @@ mod tests {
     fn test_api_error_invalid_token() {
         let err = ApiError::InvalidToken;
         assert!(err.to_string().contains("JWT"));
+    }
+
+    #[test]
+    fn test_api_error_unauthorized_feature_with_role() {
+        let err = ApiError::unauthorized_feature(
+            Some("https://api.stackhawk.com/api/v1/configuration/org-id/list"),
+            Some("MEMBER"),
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Access denied."));
+        assert!(msg.contains("/api/v1/configuration"));
+        assert!(msg.contains("Your current role: MEMBER"));
+        assert!(msg.contains("feature flag"));
+    }
+
+    #[test]
+    fn test_api_error_unauthorized_feature_without_role() {
+        let err = ApiError::unauthorized_feature(
+            Some("https://api.stackhawk.com/api/v1/some/endpoint"),
+            None,
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Access denied."));
+        assert!(msg.contains("/api/v1/some/endpoint"));
+        // Role should always be shown now, defaulting to "Unknown"
+        assert!(msg.contains("Your current role: Unknown"));
+    }
+
+    #[test]
+    fn test_api_error_unauthorized_feature_no_details() {
+        let err = ApiError::unauthorized_feature(None, None);
+        let msg = err.to_string();
+        assert!(msg.contains("This feature"));
+        assert!(msg.contains("feature flag"));
+        assert!(msg.contains("Your current role: Unknown"));
     }
 
     #[test]

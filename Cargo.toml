@@ -10,6 +10,7 @@ repository = "https://github.com/kaakaww/hawkop"
 [features]
 default = []
 http-tests = []
+functional-tests = []
 
 [dependencies]
 # CLI framework
@@ -66,6 +67,7 @@ sha2 = "0.10"
 [dev-dependencies]
 assert_cmd = "2"
 mockito = "1"
+predicates = "3"
 tempfile = "3"
 
 [profile.release]

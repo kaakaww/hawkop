@@ -87,6 +87,34 @@ fn compute_base_urls(host: &str) -> (String, String) {
     (format!("{}/api/v1", host), format!("{}/api/v2", host))
 }
 
+/// Generate a helpful error message for bad requests.
+///
+/// When the API returns an empty error body, we try to provide contextual
+/// information based on the request path to help users diagnose the issue.
+fn bad_request_message(path: &str, error_body: String) -> String {
+    // If the API provided a message, use it
+    let trimmed = error_body.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    // Check if this looks like an org-related request with invalid org ID
+    // Patterns: /org/{org-id}/... or /api/v1/org/{org-id}/...
+    if let Some(org_start) = path.find("/org/") {
+        let after_org = &path[org_start + 5..]; // Skip "/org/"
+        if let Some(end) = after_org.find('/') {
+            let org_id = &after_org[..end];
+            return format!(
+                "Invalid or inaccessible organization '{}'. Run `hawkop org list` to see available organizations.",
+                org_id
+            );
+        }
+    }
+
+    // Default message when we can't provide specific guidance
+    "Invalid request (no details provided by API)".to_string()
+}
+
 /// StackHawk API client
 pub struct StackHawkClient {
     http: HttpClient,
@@ -207,6 +235,59 @@ impl StackHawkClient {
         state.jwt.clone().ok_or(ApiError::Unauthorized.into())
     }
 
+    /// Get the current user's organization role
+    ///
+    /// This is a best-effort method used for error messages. It tries to fetch
+    /// the user's role from the /api/v1/user endpoint but returns None on any
+    /// failure rather than propagating errors.
+    async fn get_current_user_role(&self) -> Option<String> {
+        // Response structure for /api/v1/user endpoint
+        #[derive(Deserialize)]
+        struct UserResponse {
+            organizations: Option<Vec<UserOrganization>>,
+        }
+
+        #[derive(Deserialize)]
+        struct UserOrganization {
+            role: Option<String>,
+        }
+
+        // Try to fetch user info - this should work since we just successfully
+        // authenticated. If it fails, just return None.
+        let jwt = match self.get_valid_jwt().await {
+            Ok(jwt) => jwt,
+            Err(_) => return None,
+        };
+
+        let url = format!("{}/user", self.base_url_v1);
+        let response = match self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => resp,
+            _ => return None,
+        };
+
+        let user_response: UserResponse = match response.json().await {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
+
+        // Return the first role found (for error message purposes)
+        if let Some(orgs) = user_response.organizations {
+            for org in orgs {
+                if let Some(role) = org.role {
+                    return Some(role);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Make an authenticated API request
     fn request<'a, T: for<'de> Deserialize<'de> + 'a>(
         &'a self,
@@ -234,7 +315,7 @@ impl StackHawkClient {
         path: &str,
         query_params: &[(&str, String)],
     ) -> Result<T> {
-        self.request_with_retry(method, base_url, path, query_params, 0)
+        self.request_with_retry(method, base_url, path, query_params, 0, false)
             .await
     }
 
@@ -250,7 +331,7 @@ impl StackHawkClient {
         T: for<'de> Deserialize<'de>,
         B: serde::Serialize + Send + Sync,
     {
-        self.request_with_body_retry(method, base_url, path, body, 0)
+        self.request_with_body_retry(method, base_url, path, body, 0, false)
             .await
     }
 
@@ -262,6 +343,7 @@ impl StackHawkClient {
         path: &str,
         body: &B,
         attempt: u32,
+        token_refreshed: bool,
     ) -> Result<T>
     where
         T: for<'de> Deserialize<'de>,
@@ -326,6 +408,19 @@ impl StackHawkClient {
                 Ok(data)
             }
             StatusCode::UNAUTHORIZED => {
+                // If we already refreshed the token and still get 401, it's an authorization error
+                // (e.g., feature not enabled, insufficient role) not an authentication error
+                if token_refreshed {
+                    debug!(
+                        "Received 401 after token refresh - this is an authorization error, not auth"
+                    );
+                    let role = self.get_current_user_role().await;
+                    let full_url = format!("{}{}", base_url, path);
+                    return Err(
+                        ApiError::unauthorized_feature(Some(&full_url), role.as_deref()).into(),
+                    );
+                }
+
                 debug!("Received 401, attempting token refresh");
                 let api_key = {
                     let state = self.auth_state.read().await;
@@ -337,7 +432,7 @@ impl StackHawkClient {
                     self.set_jwt(jwt_token).await;
                     debug!("Token refreshed, retrying request");
                     return Box::pin(
-                        self.request_with_body_retry(method, base_url, path, body, attempt),
+                        self.request_with_body_retry(method, base_url, path, body, attempt, true),
                     )
                     .await;
                 }
@@ -382,14 +477,19 @@ impl StackHawkClient {
                 );
 
                 tokio::time::sleep(total_wait).await;
-                Box::pin(self.request_with_body_retry(method, base_url, path, body, attempt + 1))
-                    .await
+                Box::pin(self.request_with_body_retry(
+                    method,
+                    base_url,
+                    path,
+                    body,
+                    attempt + 1,
+                    token_refreshed,
+                ))
+                .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
@@ -411,7 +511,8 @@ impl StackHawkClient {
 
     /// Internal request for DELETE operations that don't return a body
     async fn request_delete(&self, base_url: &str, path: &str) -> Result<()> {
-        self.request_delete_with_retry(base_url, path, 0).await
+        self.request_delete_with_retry(base_url, path, 0, false)
+            .await
     }
 
     /// Delete request with retry support
@@ -420,6 +521,7 @@ impl StackHawkClient {
         base_url: &str,
         path: &str,
         attempt: u32,
+        token_refreshed: bool,
     ) -> Result<()> {
         let method = reqwest::Method::DELETE;
 
@@ -454,6 +556,18 @@ impl StackHawkClient {
         match status {
             StatusCode::OK | StatusCode::NO_CONTENT => Ok(()),
             StatusCode::UNAUTHORIZED => {
+                // If we already refreshed the token and still get 401, it's an authorization error
+                if token_refreshed {
+                    debug!(
+                        "Received 401 after token refresh - this is an authorization error, not auth"
+                    );
+                    let role = self.get_current_user_role().await;
+                    let full_url = format!("{}{}", base_url, path);
+                    return Err(
+                        ApiError::unauthorized_feature(Some(&full_url), role.as_deref()).into(),
+                    );
+                }
+
                 debug!("Received 401, attempting token refresh");
                 let api_key = {
                     let state = self.auth_state.read().await;
@@ -464,7 +578,8 @@ impl StackHawkClient {
                     let jwt_token = self.authenticate(&api_key).await?;
                     self.set_jwt(jwt_token).await;
                     debug!("Token refreshed, retrying request");
-                    return Box::pin(self.request_delete_with_retry(base_url, path, attempt)).await;
+                    return Box::pin(self.request_delete_with_retry(base_url, path, attempt, true))
+                        .await;
                 }
                 Err(ApiError::Unauthorized.into())
             }
@@ -507,13 +622,17 @@ impl StackHawkClient {
                 );
 
                 tokio::time::sleep(total_wait).await;
-                Box::pin(self.request_delete_with_retry(base_url, path, attempt + 1)).await
+                Box::pin(self.request_delete_with_retry(
+                    base_url,
+                    path,
+                    attempt + 1,
+                    token_refreshed,
+                ))
+                .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
@@ -546,6 +665,7 @@ impl StackHawkClient {
         path: &str,
         query_params: &[(&str, String)],
         attempt: u32,
+        token_refreshed: bool,
     ) -> Result<T> {
         // Categorize this endpoint for rate limiting
         let category = EndpointCategory::from_request(path, &method);
@@ -609,6 +729,19 @@ impl StackHawkClient {
                 Ok(data)
             }
             StatusCode::UNAUTHORIZED => {
+                // If we already refreshed the token and still get 401, it's an authorization error
+                // (e.g., feature not enabled, insufficient role) not an authentication error
+                if token_refreshed {
+                    debug!(
+                        "Received 401 after token refresh - this is an authorization error, not auth"
+                    );
+                    let role = self.get_current_user_role().await;
+                    let full_url = format!("{}{}", base_url, path);
+                    return Err(
+                        ApiError::unauthorized_feature(Some(&full_url), role.as_deref()).into(),
+                    );
+                }
+
                 debug!("Received 401, attempting token refresh");
                 // Try to refresh token once
                 let api_key = {
@@ -628,6 +761,7 @@ impl StackHawkClient {
                         path,
                         query_params,
                         attempt,
+                        true, // Mark that we've refreshed the token
                     ))
                     .await;
                 }
@@ -685,14 +819,19 @@ impl StackHawkClient {
                 tokio::time::sleep(total_wait).await;
 
                 // Retry with incremented attempt counter
-                Box::pin(self.request_with_retry(method, base_url, path, query_params, attempt + 1))
-                    .await
+                Box::pin(self.request_with_retry(
+                    method,
+                    base_url,
+                    path,
+                    query_params,
+                    attempt + 1,
+                    token_refreshed,
+                ))
+                .await
             }
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
-                let error_msg = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Bad request".to_string());
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = bad_request_message(path, error_body);
                 debug!("Bad request: {}", error_msg);
                 Err(ApiError::BadRequest(error_msg).into())
             }
