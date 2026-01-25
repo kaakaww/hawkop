@@ -290,10 +290,10 @@ fn test_oas_list_json_format() {
 // Config Commands (requires hosted scan configs feature)
 // ============================================================================
 // NOTE: The config list endpoint requires hosted scan configs feature which
-// may not be available in all organizations. These tests are ignored by default.
+// may not be available in all organizations. These tests will fail with an
+// "Access denied" error if the feature is not enabled.
 
 #[test]
-#[ignore = "requires hosted scan configs feature"]
 #[cfg_attr(not(feature = "functional-tests"), ignore)]
 fn test_config_list_succeeds() {
     let ctx = FunctionalTestContext::new();
@@ -303,7 +303,6 @@ fn test_config_list_succeeds() {
 }
 
 #[test]
-#[ignore = "requires hosted scan configs feature"]
 #[cfg_attr(not(feature = "functional-tests"), ignore)]
 fn test_config_list_json_format() {
     let ctx = FunctionalTestContext::new();
