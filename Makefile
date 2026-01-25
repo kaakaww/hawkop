@@ -4,6 +4,7 @@
 .PHONY: help build release test lint fmt check-fmt pre-commit clean install run
 .PHONY: build-all build-linux-x64 build-linux-arm64 build-macos-intel build-macos-arm build-windows-x64 build-windows-arm64
 .PHONY: dist checksums changelog changelog-preview
+.PHONY: functional-test functional-test-dry-run
 
 # Default target
 .DEFAULT_GOAL := help
@@ -193,3 +194,35 @@ changelog-preview:
 	@echo ""
 	@$(MAKE) -s changelog
 	@echo ""
+
+## functional-test: Run functional tests against real API (uses HAWKOP_PROFILE)
+functional-test:
+	@echo "$(CYAN)╔════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(CYAN)║         Running Functional Tests                       ║$(NC)"
+	@echo "$(CYAN)╚════════════════════════════════════════════════════════╝$(NC)"
+	@echo ""
+	@if [ -z "$$HAWKOP_PROFILE" ]; then \
+		echo "$(RED)Error: HAWKOP_PROFILE must be set$(NC)"; \
+		echo "$(YELLOW)Example: HAWKOP_PROFILE=test make functional-test$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Using profile: $$HAWKOP_PROFILE$(NC)"
+	@echo ""
+	cargo test --features functional-tests --test functional -- --test-threads=1
+
+## functional-test-dry-run: Preview functional tests (list only, no execution)
+functional-test-dry-run:
+	@echo "$(CYAN)╔════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(CYAN)║      Functional Tests Preview (List Only)              ║$(NC)"
+	@echo "$(CYAN)╚════════════════════════════════════════════════════════╝$(NC)"
+	@echo ""
+	@echo "$(YELLOW)The following tests would run:$(NC)"
+	@echo ""
+	@cargo test --features functional-tests --test functional -- --list 2>/dev/null | grep ": test$$" | sed 's/: test$$//' | while read test; do \
+		echo "  $(GREEN)✓$(NC) $$test"; \
+	done
+	@echo ""
+	@echo "$(CYAN)Total:$(NC) $$(cargo test --features functional-tests --test functional -- --list 2>/dev/null | grep -c ': test$$') tests"
+	@echo ""
+	@echo "$(YELLOW)To run these tests:$(NC)"
+	@echo "  HAWKOP_PROFILE=test make functional-test"
