@@ -15,6 +15,7 @@ pub mod cache;
 pub mod completions;
 pub mod config;
 pub mod context;
+pub mod env;
 pub mod handlers;
 pub mod init;
 pub mod oas;
@@ -22,6 +23,7 @@ pub mod org;
 pub mod policy;
 pub mod profile;
 pub mod repo;
+pub mod run;
 pub mod scan;
 pub mod secret;
 pub mod status;
@@ -128,6 +130,10 @@ pub enum Commands {
     #[command(subcommand)]
     Scan(ScanCommands),
 
+    /// Run hosted scans (start, stop, status)
+    #[command(subcommand)]
+    Run(RunCommands),
+
     /// List organization users/members
     #[command(subcommand)]
     User(UserCommands),
@@ -159,6 +165,10 @@ pub enum Commands {
     /// View organization audit log
     #[command(subcommand)]
     Audit(AuditCommands),
+
+    /// Manage application environments
+    #[command(subcommand)]
+    Env(EnvCommands),
 
     /// Manage local response cache
     #[command(subcommand)]
@@ -274,6 +284,68 @@ pub enum ScanCommands {
         /// Output format: pretty (default), table, json
         #[arg(long, short = 'o', default_value = "pretty")]
         format: OutputFormat,
+    },
+}
+
+/// Run (hosted scan control) subcommands
+#[derive(Subcommand, Debug)]
+pub enum RunCommands {
+    /// Start a hosted scan for an application
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop run start --app myapp              # Start scan for app by name\n  \
+            hawkop run start --app <uuid>             # Start scan for app by ID\n  \
+            hawkop run start --app myapp --watch      # Start and watch progress\n  \
+            hawkop run start --app myapp --env prod   # Scan specific environment\n  \
+            hawkop run start --app myapp --config ci  # Use specific scan config")]
+    Start {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Environment to scan (optional)
+        #[arg(long, short = 'e')]
+        env: Option<String>,
+
+        /// Scan configuration name to use (optional)
+        #[arg(long, short = 'c')]
+        config: Option<String>,
+
+        /// Watch scan progress after starting
+        #[arg(long, short = 'w')]
+        watch: bool,
+    },
+
+    /// Stop a running hosted scan
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop run stop --app myapp       # Stop with confirmation\n  \
+            hawkop run stop --app myapp --yes # Skip confirmation")]
+    Stop {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Get the status of a hosted scan
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop run status --app myapp           # Check current status\n  \
+            hawkop run status --app myapp --watch   # Auto-refresh status\n  \
+            hawkop run status --app myapp -w -i 10  # Refresh every 10s")]
+    Status {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Watch status with auto-refresh
+        #[arg(long, short = 'w')]
+        watch: bool,
+
+        /// Refresh interval in seconds (default: 5)
+        #[arg(long, short = 'i', default_value = "5")]
+        interval: u64,
     },
 }
 
@@ -561,9 +633,33 @@ pub enum RepoCommands {
 #[derive(Subcommand, Debug)]
 pub enum OasCommands {
     /// List hosted OpenAPI specifications
+    #[command(visible_alias = "ls")]
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+    },
+
+    /// Get OpenAPI specification content
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop oas get <oas-id>              # Display OAS content (JSON)\n  \
+            hawkop oas get <oas-id> -o spec.json # Save to file")]
+    Get {
+        /// OAS ID (UUID)
+        oas_id: String,
+
+        /// Output file path (optional, prints to stdout if not specified)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
+    /// List OpenAPI specs mapped to an application
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop oas mappings --app myapp      # List by app name\n  \
+            hawkop oas mappings --app <uuid>     # List by app ID")]
+    Mappings {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
     },
 }
 
@@ -571,9 +667,77 @@ pub enum OasCommands {
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommands {
     /// List scan configurations
+    #[command(
+        visible_alias = "ls",
+        after_help = "EXAMPLES:\n  \
+            hawkop config list                    # List all org configs"
+    )]
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+    },
+
+    /// Get a scan configuration's content
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop config get myconfig            # Display config content\n  \
+            hawkop config get myconfig -o out.yml # Save to file")]
+    Get {
+        /// Configuration name
+        name: String,
+
+        /// Output file path (optional, prints to stdout if not specified)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
+    /// Create or update a scan configuration
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop config set myconfig -f config.yml  # Create/update config")]
+    Set {
+        /// Configuration name
+        name: String,
+
+        /// YAML configuration file to upload
+        #[arg(long, short = 'f', required = true)]
+        file: String,
+    },
+
+    /// Delete a scan configuration
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop config delete myconfig         # Delete with confirmation\n  \
+            hawkop config delete myconfig --yes   # Delete without confirmation")]
+    Delete {
+        /// Configuration name
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Rename a scan configuration
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop config rename oldname newname  # Rename config")]
+    Rename {
+        /// Current configuration name
+        old_name: String,
+
+        /// New configuration name
+        new_name: String,
+    },
+
+    /// Validate a scan configuration
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop config validate -f stackhawk.yml  # Validate local file\n  \
+            hawkop config validate myconfig          # Validate stored config")]
+    Validate {
+        /// Configuration name (to validate stored config)
+        #[arg(conflicts_with = "file")]
+        name: Option<String>,
+
+        /// YAML file to validate (local file)
+        #[arg(long, short = 'f', conflicts_with = "name")]
+        file: Option<String>,
     },
 }
 
@@ -607,6 +771,72 @@ Examples:
     List {
         #[command(flatten)]
         filters: AuditFilterArgs,
+    },
+}
+
+/// Environment management subcommands
+#[derive(Subcommand, Debug)]
+pub enum EnvCommands {
+    /// List environments for an application
+    #[command(
+        visible_alias = "ls",
+        after_help = "EXAMPLES:\n  \
+            hawkop env list --app myapp              # List by app name\n  \
+            hawkop env list --app <uuid>             # List by app ID"
+    )]
+    List {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        #[command(flatten)]
+        pagination: PaginationArgs,
+    },
+
+    /// Get default YAML configuration for an environment
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop env config --app myapp production           # Display config\n  \
+            hawkop env config --app myapp production -o out.yml # Save to file")]
+    Config {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Environment name or ID
+        env: String,
+
+        /// Output file path (optional, prints to stdout if not specified)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
+    /// Create a new environment for an application
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop env create --app myapp staging    # Create 'staging' environment")]
+    Create {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Environment name
+        name: String,
+    },
+
+    /// Delete an environment
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop env delete --app myapp staging       # Delete with confirmation\n  \
+            hawkop env delete --app myapp staging --yes # Skip confirmation")]
+    Delete {
+        /// Application name or ID
+        #[arg(long, short = 'a', required = true, add = app_name_candidates())]
+        app: String,
+
+        /// Environment name or ID
+        env: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 

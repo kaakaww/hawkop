@@ -27,6 +27,7 @@ use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 
 pub mod error_tests;
+pub mod hosted_tests;
 pub mod mutation_tests;
 pub mod read_tests;
 

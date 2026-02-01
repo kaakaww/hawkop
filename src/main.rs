@@ -14,9 +14,9 @@ mod output;
 
 use cli::args::GlobalOptions;
 use cli::{
-    AppCommands, AuditCommands, CacheCommands, Cli, Commands, ConfigCommands, OasCommands,
-    OrgCommands, PolicyCommands, ProfileCommands, RepoCommands, ScanCommands, SecretCommands,
-    TeamCommands, UserCommands,
+    AppCommands, AuditCommands, CacheCommands, Cli, Commands, ConfigCommands, EnvCommands,
+    OasCommands, OrgCommands, PolicyCommands, ProfileCommands, RepoCommands, RunCommands,
+    ScanCommands, SecretCommands, TeamCommands, UserCommands,
 };
 use error::Result;
 
@@ -114,6 +114,20 @@ async fn run() -> Result<()> {
                 .await
             }
         },
+        Commands::Run(run_cmd) => match run_cmd {
+            RunCommands::Start {
+                app,
+                env,
+                config,
+                watch,
+            } => cli::run::start(&opts, &app, env.as_deref(), config.as_deref(), watch).await,
+            RunCommands::Stop { app, yes } => cli::run::stop(&opts, &app, yes).await,
+            RunCommands::Status {
+                app,
+                watch,
+                interval,
+            } => cli::run::status(&opts, &app, watch, interval).await,
+        },
         Commands::User(user_cmd) => match user_cmd {
             UserCommands::List { pagination } => cli::user::list(&opts, &pagination).await,
         },
@@ -187,15 +201,38 @@ async fn run() -> Result<()> {
         },
         Commands::Oas(oas_cmd) => match oas_cmd {
             OasCommands::List { pagination } => cli::oas::list(&opts, &pagination).await,
+            OasCommands::Get { oas_id, output } => {
+                cli::oas::get(&opts, &oas_id, output.as_deref()).await
+            }
+            OasCommands::Mappings { app } => cli::oas::mappings(&opts, &app).await,
         },
         Commands::Config(config_cmd) => match config_cmd {
             ConfigCommands::List { pagination } => cli::config::list(&opts, &pagination).await,
+            ConfigCommands::Get { name, output } => {
+                cli::config::get(&opts, &name, output.as_deref()).await
+            }
+            ConfigCommands::Set { name, file } => cli::config::set(&opts, &name, &file).await,
+            ConfigCommands::Delete { name, yes } => cli::config::delete(&opts, &name, yes).await,
+            ConfigCommands::Rename { old_name, new_name } => {
+                cli::config::rename(&opts, &old_name, &new_name).await
+            }
+            ConfigCommands::Validate { name, file } => {
+                cli::config::validate(&opts, name.as_deref(), file.as_deref()).await
+            }
         },
         Commands::Secret(secret_cmd) => match secret_cmd {
             SecretCommands::List => cli::secret::list(&opts).await,
         },
         Commands::Audit(audit_cmd) => match audit_cmd {
             AuditCommands::List { filters } => cli::audit::list(&opts, &filters).await,
+        },
+        Commands::Env(env_cmd) => match env_cmd {
+            EnvCommands::List { app, pagination } => cli::env::list(&opts, &app, &pagination).await,
+            EnvCommands::Config { app, env, output } => {
+                cli::env::config(&opts, &app, &env, output.as_deref()).await
+            }
+            EnvCommands::Create { app, name } => cli::env::create(&opts, &app, &name).await,
+            EnvCommands::Delete { app, env, yes } => cli::env::delete(&opts, &app, &env, yes).await,
         },
         Commands::Cache(cache_cmd) => match cache_cmd {
             CacheCommands::Status => cli::cache::status(opts.format),

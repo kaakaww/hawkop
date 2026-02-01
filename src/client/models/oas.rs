@@ -21,4 +21,33 @@ pub struct OASAsset {
     /// Source root path in repository
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_root_path: Option<String>,
+
+    /// File name of the OAS spec
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+
+    /// File size in bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size: Option<i64>,
+}
+
+// ============================================================================
+// OAS Mappings Response
+// ============================================================================
+
+/// Response from getting application-mapped OAS specs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetApplicationMappedOASResponse {
+    /// The application ID
+    #[serde(default)]
+    pub app_id: String,
+
+    /// OAS assets mapped to this application
+    #[serde(default)]
+    pub assets: Vec<OASAsset>,
+
+    /// Repository IDs mapped to this application
+    #[serde(default)]
+    pub repo_ids: Vec<String>,
 }

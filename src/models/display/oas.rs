@@ -48,6 +48,8 @@ mod tests {
             repository_id: Some("repo-456".to_string()),
             repository_name: Some("my-api".to_string()),
             source_root_path: Some("/src/main".to_string()),
+            file_name: Some("openapi.json".to_string()),
+            file_size: Some(1024),
         };
 
         let display = OASDisplay::from(oas);
@@ -64,6 +66,8 @@ mod tests {
             repository_id: None,
             repository_name: None,
             source_root_path: None,
+            file_name: None,
+            file_size: None,
         };
 
         let display = OASDisplay::from(oas);
