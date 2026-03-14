@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# HawkOp pre-commit hook
+# Install: make setup-hooks
+#
+# Runs the standard quality gate before each commit:
+# 1. cargo fmt --check (fast, catches formatting)
+# 2. cargo clippy (catches bugs and anti-patterns)
+# 3. cargo test (catches regressions)
+#
+# Skip with: git commit --no-verify (use sparingly)
+
+set -e
+
+# Colors (respect NO_COLOR)
+if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+    CYAN='\033[0;36m'
+    GREEN='\033[0;32m'
+    RED='\033[0;31m'
+    YELLOW='\033[0;33m'
+    NC='\033[0m'
+else
+    CYAN='' GREEN='' RED='' YELLOW='' NC=''
+fi
+
+echo -e "${CYAN}Running pre-commit checks...${NC}"
+echo ""
+
+# 1. Format check (fast — ~0.5s)
+echo -e "${YELLOW}[1/3] Checking format...${NC}"
+if ! cargo fmt -- --check 2>/dev/null; then
+    echo -e "${RED}Format check failed.${NC}"
+    echo -e "${YELLOW}Run 'cargo fmt' to fix, then re-commit.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}  Format OK${NC}"
+
+# 2. Clippy (moderate — ~5-15s depending on cache)
+echo -e "${YELLOW}[2/3] Running clippy...${NC}"
+if ! cargo clippy -- -D warnings 2>/dev/null; then
+    echo -e "${RED}Clippy found issues.${NC}"
+    echo -e "${YELLOW}Fix the warnings above, then re-commit.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}  Clippy OK${NC}"
+
+# 3. Tests (slower — ~10-30s)
+echo -e "${YELLOW}[3/3] Running tests...${NC}"
+if ! cargo test 2>/dev/null; then
+    echo -e "${RED}Tests failed.${NC}"
+    echo -e "${YELLOW}Fix failing tests, then re-commit.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}  Tests OK${NC}"
+
+echo ""
+echo -e "${GREEN}All pre-commit checks passed.${NC}"

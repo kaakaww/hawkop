@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hosted scan control** - Start, stop, and monitor hosted scans from the CLI
+  - `run start --app <APP>` - Start a hosted scan with optional `--env`, `--config`, `--watch`
+  - `run stop --app <APP>` - Stop a running scan (with `--yes` to skip confirmation)
+  - `run status --app <APP>` - Check scan status with optional `--watch` auto-refresh
+- **Environment management** - Create, list, and manage application environments
+  - `env list --app <APP>` - List environments for an application
+  - `env create --app <APP> <NAME>` - Create a new environment
+  - `env delete --app <APP> <ENV>` - Delete an environment
+  - `env config --app <APP> <ENV>` - Get default YAML config for an environment
+- **Scan configuration CRUD** - Full lifecycle management for scan configs
+  - `config get <NAME>` - Download a stored configuration
+  - `config set <NAME> --file <FILE>` - Create or update a configuration
+  - `config delete <NAME>` - Delete a configuration
+  - `config rename <OLD> <NEW>` - Rename a configuration
+  - `config validate [NAME | --file FILE]` - Validate configuration YAML
+- **OAS extended commands** - Get spec content and view app mappings
+  - `oas get <ID>` - Download OpenAPI spec content with optional `--output` file
+  - `oas mappings --app <APP>` - List specs mapped to an application
+- **API coverage roadmap** (`docs/ROADMAP.md`) - Tracks path to 100% StackHawk API coverage (currently 60%)
+- **CLI command reference** (`docs/CLI_REFERENCE.md`) - Complete taxonomy of all commands, flags, and test coverage
+- **Pre-commit quality tooling** - Two-layer quality gate for all contributors
+  - Git hooks (`.githooks/`) for automatic pre-commit and pre-push checks
+  - `make setup-hooks` to install, `make check-test-coverage` to audit test gaps
+  - `/pre-commit` Claude Code command for intelligent checklist (docs, design review)
+- **Functional tests** for hosted scanning, environment, config, and OAS commands
+
 ## [0.5.1] - 2026-01-23
 
 ### Added

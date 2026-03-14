@@ -5,6 +5,7 @@
 .PHONY: build-all build-linux-x64 build-linux-arm64 build-macos-intel build-macos-arm build-windows-x64 build-windows-arm64
 .PHONY: dist checksums changelog changelog-preview
 .PHONY: functional-test functional-test-dry-run
+.PHONY: setup-hooks check-test-coverage
 
 # Default target
 .DEFAULT_GOAL := help
@@ -194,6 +195,22 @@ changelog-preview:
 	@echo ""
 	@$(MAKE) -s changelog
 	@echo ""
+
+## setup-hooks: Install git hooks for pre-commit and pre-push checks
+setup-hooks:
+	@echo "$(CYAN)Installing git hooks...$(NC)"
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/*
+	@echo "$(GREEN)Git hooks installed.$(NC)"
+	@echo "  pre-commit: format + clippy + test"
+	@echo "  pre-push:   pre-commit + functional tests (if HAWKOP_PROFILE set)"
+	@echo ""
+	@echo "$(YELLOW)To uninstall: git config --unset core.hooksPath$(NC)"
+
+## check-test-coverage: Check functional test coverage for all CLI commands
+check-test-coverage:
+	@chmod +x scripts/check-test-coverage.sh
+	@./scripts/check-test-coverage.sh
 
 ## functional-test: Run functional tests against real API (uses HAWKOP_PROFILE)
 functional-test:
