@@ -111,6 +111,7 @@ fn test_config_get_nonexistent() {
         .stderr(
             predicate::str::contains("not found")
                 .or(predicate::str::contains("Not found"))
+                .or(predicate::str::contains("Not Found"))
                 .or(predicate::str::contains("Access denied")),
         );
 }
@@ -321,6 +322,7 @@ fn test_oas_get_nonexistent() {
         .stderr(
             predicate::str::contains("not found")
                 .or(predicate::str::contains("Not found"))
+                .or(predicate::str::contains("Not Found"))
                 .or(predicate::str::contains("Access denied")),
         );
 }
@@ -401,20 +403,10 @@ fn test_config_set_get_delete_roundtrip() {
         panic!("config set failed: {}", stderr);
     }
 
-    // Get the config back (may fail on test API due to response format differences)
-    let get_result = ctx
-        .command(&["config", "get", config_name])
-        .output()
-        .expect("Failed to run config get");
-
-    if !get_result.status.success() {
-        let stderr = String::from_utf8_lossy(&get_result.stderr);
-        // Accept parse errors on test API — the set/delete still validates the API flow
-        eprintln!(
-            "\n⚠️  config get returned error (test API may return unexpected format): {}",
-            stderr.lines().next().unwrap_or("unknown error")
-        );
-    }
+    // Get the config back and verify content
+    ctx.run(&["config", "get", config_name])
+        .success()
+        .stdout(predicate::str::contains("applicationId"));
 
     // Delete the config
     ctx.run(&["config", "delete", config_name, "--yes"])

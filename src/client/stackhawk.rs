@@ -658,6 +658,97 @@ impl StackHawkClient {
         }
     }
 
+    /// Fetch a hosted asset (config or OAS) that uses presigned S3 URLs.
+    ///
+    /// The StackHawk API returns hosted assets via a two-step process:
+    /// 1. GET the asset endpoint → returns JSON with `presignedDownloadUrl`
+    /// 2. GET the presigned URL → returns the raw content (YAML/JSON)
+    ///
+    /// However, some environments (e.g., test/preprod) return a 308 redirect
+    /// directly to S3. Since reqwest follows redirects by default, this causes
+    /// the JSON body to be lost. This method handles both cases:
+    /// - If the response is 200 with JSON body → parse presigned URL, fetch content
+    /// - If reqwest followed a redirect to S3 → return the content directly
+    async fn fetch_hosted_asset(&self, path: &str) -> Result<String> {
+        // Get valid JWT
+        let jwt = self.get_valid_jwt().await?;
+
+        let url = format!("{}{}", self.base_url_v1, path);
+        debug!("Fetching hosted asset: GET {}", url);
+
+        let response = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .send()
+            .await
+            .map_err(ApiError::from)?;
+
+        let final_url = response.url().clone();
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            debug!("Hosted asset fetch failed: {} {}", status, body);
+            return Err(match status {
+                reqwest::StatusCode::NOT_FOUND => {
+                    ApiError::NotFound(format!("Hosted asset at {}", path))
+                }
+                reqwest::StatusCode::UNAUTHORIZED => {
+                    let full_url = format!("{}{}", self.base_url_v1, path);
+                    ApiError::unauthorized_feature(Some(&full_url), None)
+                }
+                reqwest::StatusCode::FORBIDDEN => ApiError::Forbidden,
+                _ => ApiError::ServerError(format!(
+                    "Failed to fetch hosted asset: HTTP {} - {}",
+                    status,
+                    body.lines().next().unwrap_or("unknown error")
+                )),
+            }
+            .into());
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        // Check if reqwest followed a redirect to S3 (the content IS the asset)
+        let was_redirected = final_url.host_str() != Some(url.split('/').nth(2).unwrap_or(""));
+        if was_redirected {
+            debug!("Redirect followed to S3 — returning content directly");
+            return Ok(body);
+        }
+
+        // No redirect — parse the JSON envelope to get the presigned URL
+        let asset_response: GetHostedAssetResponse = serde_json::from_str(&body).map_err(|e| {
+            debug!("Failed to parse hosted asset response: {}", e);
+            ApiError::InvalidResponse(format!(
+                "Failed to parse response: {} (line {}, col {})",
+                e,
+                e.line(),
+                e.column()
+            ))
+        })?;
+
+        let download_url = asset_response
+            .presigned_download_url
+            .ok_or_else(|| ApiError::InvalidResponse("No download URL in response".to_string()))?;
+
+        // Fetch the actual content from the presigned URL (no auth needed)
+        let content = self
+            .http
+            .get(&download_url)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?
+            .text()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        Ok(content)
+    }
+
     /// Internal request implementation with retry support for rate limiting
     ///
     /// Uses exponential backoff with jitter for 429 responses:
@@ -1723,29 +1814,7 @@ impl PerchApi for StackHawkClient {
 impl ConfigApi for StackHawkClient {
     async fn get_scan_config(&self, org_id: &str, config_name: &str) -> Result<String> {
         let path = format!("/configuration/{}/{}", org_id, config_name);
-
-        // Step 1: Get the presigned download URL
-        let response: GetHostedAssetResponse = self
-            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
-            .await?;
-
-        let download_url = response
-            .presigned_download_url
-            .ok_or_else(|| ApiError::InvalidResponse("No download URL in response".to_string()))?;
-
-        // Step 2: Fetch the actual content from the presigned URL
-        // This is a direct HTTP call without authentication (the URL is pre-signed)
-        let content = self
-            .http
-            .get(&download_url)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?
-            .text()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
-
-        Ok(content)
+        self.fetch_hosted_asset(&path).await
     }
 
     async fn set_scan_config(
@@ -1924,28 +1993,7 @@ impl EnvironmentApi for StackHawkClient {
 impl OASApi for StackHawkClient {
     async fn get_oas(&self, org_id: &str, oas_id: &str) -> Result<String> {
         let path = format!("/oas/{}/{}", org_id, oas_id);
-
-        // First, get the pre-signed URL
-        let response: GetHostedAssetResponse = self
-            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
-            .await?;
-
-        // Then fetch the actual content from the pre-signed URL
-        let download_url = response
-            .presigned_download_url
-            .ok_or_else(|| ApiError::InvalidResponse("No download URL in response".to_string()))?;
-
-        let content = self
-            .http
-            .get(&download_url)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?
-            .text()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
-
-        Ok(content)
+        self.fetch_hosted_asset(&path).await
     }
 
     async fn get_oas_mappings(&self, app_id: &str) -> Result<Vec<OASAsset>> {
