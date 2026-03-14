@@ -10,7 +10,7 @@ pub enum SortDir {
 }
 
 /// Output format options
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputFormat {
     /// Pretty format - human-optimized rich formatting
     Pretty,

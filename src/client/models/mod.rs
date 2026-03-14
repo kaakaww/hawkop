@@ -11,9 +11,11 @@ mod app;
 mod audit;
 mod auth;
 mod config;
+mod env;
 mod finding;
 mod oas;
 mod org;
+mod perch;
 mod policy;
 mod repo;
 mod scan;
@@ -24,13 +26,24 @@ mod user;
 pub use app::{Application, CloudScanTarget};
 pub use audit::{AuditFilterParams, AuditRecord};
 pub use auth::JwtToken;
-pub use config::ScanConfig;
+pub use config::{
+    ConfigType, GetHostedAssetResponse, RenameConfigurationRequest, ScanConfig,
+    UpsertScanConfigurationRequest, ValidatedAssetResponse, ValidationMarker,
+};
+pub use env::{
+    EnvAlertStats, EnvScanSummary, Environment, EnvironmentConfigResponse,
+    ListEnvironmentsResponse, NewEnvironmentRequest,
+};
 pub use finding::{
     AlertMsgResponse, AlertResponse, ApplicationAlert, ApplicationAlertUri, ScanAlertsResponse,
     ScanMessage, ScanResultWithAlerts,
 };
-pub use oas::OASAsset;
+pub use oas::{GetApplicationMappedOASResponse, OASAsset};
 pub use org::Organization;
+pub use perch::{
+    GetPerchDeviceResponse, PerchCommand, PerchCommandRequest, PerchCommandResponse, PerchDevice,
+    PerchError,
+};
 pub use policy::{OrgPolicy, PolicyType, StackHawkPolicy};
 pub use repo::{
     OpenApiSpecInfo, RepoAppInfo, RepoContributor, RepoInsight, Repository, SensitiveDataTag,

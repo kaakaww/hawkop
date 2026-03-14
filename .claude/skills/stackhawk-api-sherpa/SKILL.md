@@ -23,14 +23,14 @@ curl -o stackhawk-openapi.json https://download.stackhawk.com/openapi/stackhawk-
 ```
 
 ### API Reference
-Check the `Last Updated` timestamp in `.claude/context/stackhawk-api.md`. If the reference is outdated compared to the spec, note which sections need updating.
+Check the `Last Updated` timestamp in `.claude/skills/stackhawk-api-sherpa/stackhawk-api.md`. If the reference is outdated compared to the spec, note which sections need updating.
 
 ---
 
 ## Step 2: Read the API Reference
 
 Before designing any command:
-1. **Read** `.claude/context/stackhawk-api.md`
+1. **Read** `.claude/skills/stackhawk-api-sherpa/stackhawk-api.md`
 2. **Check** implementation status - is this endpoint already wrapped?
 3. **Review** the data model relationships diagram
 4. **Note:** Check [api-quirks.md](api-quirks.md) for API behaviors that don't match the OpenAPI spec
@@ -177,7 +177,7 @@ After implementing:
 
 ## Quick Reference Links
 
-- **API Reference**: `.claude/context/stackhawk-api.md`
+- **API Reference**: `.claude/skills/stackhawk-api-sherpa/stackhawk-api.md`
 - **API Quirks**: [api-quirks.md](api-quirks.md) - API behaviors that differ from the OpenAPI spec
 - **CLI Design Principles**: `docs/CLI_DESIGN_PRINCIPLES.md`
 - **Implementation Patterns**: `CLAUDE.md` → "Adding New Commands"

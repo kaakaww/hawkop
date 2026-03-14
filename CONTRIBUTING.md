@@ -30,12 +30,19 @@ Thank you for your interest in contributing to HawkOp! This guide covers develop
    cd hawkop
    ```
 
-2. Build the project:
+2. Install git hooks (recommended):
+   ```bash
+   make setup-hooks
+   ```
+
+   This installs pre-commit and pre-push hooks that run quality checks automatically. See [Git Hooks](#git-hooks) for details.
+
+3. Build the project:
    ```bash
    make build
    ```
 
-3. Run the CLI:
+4. Run the CLI:
    ```bash
    make run
    # or
@@ -58,9 +65,30 @@ make pre-commit      # Run all checks (format, lint, test)
 make clean           # Remove build artifacts
 ```
 
-### Pre-Commit Checks
+### Git Hooks
 
-**Always run before committing:**
+HawkOp provides git hooks that run quality checks automatically:
+
+```bash
+make setup-hooks    # One-time setup
+```
+
+**Pre-commit hook** runs on every `git commit`:
+1. Format check (`cargo fmt --check`)
+2. Clippy lints (`cargo clippy -- -D warnings`)
+3. Unit tests (`cargo test`)
+
+**Pre-push hook** runs on every `git push`:
+1. All pre-commit checks (above)
+2. Functional tests (if `HAWKOP_PROFILE` is set)
+
+Skip hooks when needed: `git commit --no-verify` (use sparingly).
+
+To uninstall: `git config --unset core.hooksPath`
+
+### Pre-Commit Checks (Manual)
+
+You can also run the checks manually:
 
 ```bash
 make pre-commit
@@ -336,9 +364,12 @@ make changelog-preview
 
 ### Before Submitting
 
-- [ ] Run `make pre-commit` - all checks pass
-- [ ] Add tests for new functionality
-- [ ] Update documentation if needed
+- [ ] Run `make pre-commit` — all checks pass
+- [ ] Run `make check-test-coverage` — no gaps for new commands
+- [ ] Add functional tests for new commands (happy path + error path + JSON format)
+- [ ] Update `docs/CLI_REFERENCE.md` if commands/flags changed
+- [ ] Update `docs/ROADMAP.md` if planned items were implemented
+- [ ] Add entry to `CHANGELOG.md` under `[Unreleased]`
 - [ ] Write clear commit messages
 - [ ] Rebase on latest `main`
 

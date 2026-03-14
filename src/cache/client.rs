@@ -9,12 +9,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
-use crate::client::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
+use crate::client::api::{
+    AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi, TeamApi,
+};
 use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig,
-    ScanResult, Secret, StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest,
-    UpdateTeamRequest, User,
+    ConfigType, CreateTeamRequest, Environment, JwtToken, OASAsset, OrgPolicy, Organization,
+    PerchCommandResponse, PerchDevice, Repository, ScanConfig, ScanResult, Secret, StackHawkPolicy,
+    Team, TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest, User,
+    ValidatedAssetResponse,
 };
 use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
@@ -871,6 +874,159 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + 'static> TeamApi
             .await?;
         self.invalidate_team_cache(org_id);
         Ok(())
+    }
+}
+
+// ============================================================================
+// PerchApi Implementation (Hosted Scan Control)
+// ============================================================================
+
+#[async_trait]
+impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + PerchApi + 'static> PerchApi
+    for CachedStackHawkClient<C>
+{
+    /// Start a hosted scan - never cached (action, not read)
+    async fn start_scan(
+        &self,
+        app_id: &str,
+        env: Option<&str>,
+        config: Option<&str>,
+    ) -> Result<PerchCommandResponse> {
+        // Scanner commands are never cached - always pass through to inner client
+        self.inner.start_scan(app_id, env, config).await
+    }
+
+    /// Stop a hosted scan - never cached (action, not read)
+    async fn stop_scan(&self, app_id: &str) -> Result<PerchCommandResponse> {
+        // Scanner commands are never cached - always pass through to inner client
+        self.inner.stop_scan(app_id).await
+    }
+
+    /// Get scan status - short TTL cache (status changes frequently)
+    async fn get_scan_status(&self, app_id: &str) -> Result<PerchDevice> {
+        // Don't cache scan status - it changes frequently during scans
+        // and we want users to see real-time status
+        self.inner.get_scan_status(app_id).await
+    }
+}
+
+// ============================================================================
+// ConfigApi Implementation (Configuration Management)
+// ============================================================================
+
+#[async_trait]
+impl<C: AuthApi + ListingApi + ScanDetailApi + TeamApi + PerchApi + ConfigApi + 'static> ConfigApi
+    for CachedStackHawkClient<C>
+{
+    /// Get config content - not cached (configs can change, and content can be large)
+    async fn get_scan_config(&self, org_id: &str, config_name: &str) -> Result<String> {
+        self.inner.get_scan_config(org_id, config_name).await
+    }
+
+    /// Set config - never cached (write operation)
+    async fn set_scan_config(
+        &self,
+        org_id: &str,
+        name: &str,
+        content: &str,
+        config_type: ConfigType,
+    ) -> Result<()> {
+        self.inner
+            .set_scan_config(org_id, name, content, config_type)
+            .await
+    }
+
+    /// Delete config - never cached (write operation)
+    async fn delete_scan_config(&self, org_id: &str, config_name: &str) -> Result<()> {
+        self.inner.delete_scan_config(org_id, config_name).await
+    }
+
+    /// Rename config - never cached (write operation)
+    async fn rename_scan_config(&self, org_id: &str, old_name: &str, new_name: &str) -> Result<()> {
+        self.inner
+            .rename_scan_config(org_id, old_name, new_name)
+            .await
+    }
+
+    /// Validate config - not cached (validation results depend on current schema)
+    async fn validate_scan_config(
+        &self,
+        org_id: &str,
+        content: &str,
+    ) -> Result<ValidatedAssetResponse> {
+        self.inner.validate_scan_config(org_id, content).await
+    }
+}
+
+// ============================================================================
+// EnvironmentApi Implementation (Environment Management)
+// ============================================================================
+
+#[async_trait]
+impl<
+    C: AuthApi
+        + ListingApi
+        + ScanDetailApi
+        + TeamApi
+        + PerchApi
+        + ConfigApi
+        + EnvironmentApi
+        + 'static,
+> EnvironmentApi for CachedStackHawkClient<C>
+{
+    /// List environments - use short TTL cache
+    async fn list_environments(
+        &self,
+        app_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<Environment>> {
+        // Don't cache environment lists - they can change and are app-specific
+        self.inner.list_environments(app_id, pagination).await
+    }
+
+    /// Get environment default config - not cached (configs can change)
+    async fn get_environment_default_config(&self, app_id: &str, env_id: &str) -> Result<String> {
+        self.inner
+            .get_environment_default_config(app_id, env_id)
+            .await
+    }
+
+    /// Create environment - never cached (write operation)
+    async fn create_environment(&self, app_id: &str, env_name: &str) -> Result<Application> {
+        self.inner.create_environment(app_id, env_name).await
+    }
+
+    /// Delete environment - never cached (write operation)
+    async fn delete_environment(&self, app_id: &str, env_id: &str) -> Result<()> {
+        self.inner.delete_environment(app_id, env_id).await
+    }
+}
+
+// ============================================================================
+// OASApi Implementation (OpenAPI Specification Management)
+// ============================================================================
+
+#[async_trait]
+impl<
+    C: AuthApi
+        + ListingApi
+        + ScanDetailApi
+        + TeamApi
+        + PerchApi
+        + ConfigApi
+        + EnvironmentApi
+        + OASApi
+        + 'static,
+> OASApi for CachedStackHawkClient<C>
+{
+    /// Get OAS content - not cached (content can be large and specs can change)
+    async fn get_oas(&self, org_id: &str, oas_id: &str) -> Result<String> {
+        self.inner.get_oas(org_id, oas_id).await
+    }
+
+    /// Get OAS mappings for an app - not cached (mappings can change)
+    async fn get_oas_mappings(&self, app_id: &str) -> Result<Vec<OASAsset>> {
+        self.inner.get_oas_mappings(app_id).await
     }
 }
 

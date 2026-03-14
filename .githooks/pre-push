@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# HawkOp pre-push hook
+# Install: make setup-hooks
+#
+# Runs pre-commit checks plus optional functional tests.
+# Functional tests only run if HAWKOP_PROFILE is set.
+#
+# Skip with: git push --no-verify
+
+set -e
+
+# Colors (respect NO_COLOR)
+if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+    CYAN='\033[0;36m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    NC='\033[0m'
+else
+    CYAN='' GREEN='' YELLOW='' NC=''
+fi
+
+echo -e "${CYAN}Running pre-push checks...${NC}"
+
+# Run the standard pre-commit checks
+make pre-commit
+
+# Run functional tests if profile is configured
+if [ -n "${HAWKOP_PROFILE:-}" ]; then
+    echo ""
+    echo -e "${CYAN}Running functional tests (HAWKOP_PROFILE=${HAWKOP_PROFILE})...${NC}"
+    make functional-test
+else
+    echo ""
+    echo -e "${YELLOW}Skipping functional tests (set HAWKOP_PROFILE to enable).${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}All pre-push checks passed.${NC}"

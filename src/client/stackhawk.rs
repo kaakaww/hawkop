@@ -15,14 +15,20 @@ use tokio::sync::RwLock;
 
 use serde::de::{self, Deserializer};
 
-use super::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
+use super::api::{
+    AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi, TeamApi,
+};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanAlertsResponse,
-    ScanConfig, ScanResult, Secret, StackHawkPolicy, Team, TeamDetail,
-    UpdateApplicationTeamRequest, UpdateTeamRequest, User,
+    ConfigType, CreateTeamRequest, Environment, EnvironmentConfigResponse,
+    GetApplicationMappedOASResponse, GetHostedAssetResponse, GetPerchDeviceResponse, JwtToken,
+    ListEnvironmentsResponse, NewEnvironmentRequest, OASAsset, OrgPolicy, Organization,
+    PerchCommand, PerchCommandRequest, PerchCommandResponse, PerchDevice,
+    RenameConfigurationRequest, Repository, ScanAlertsResponse, ScanConfig, ScanResult, Secret,
+    StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest,
+    UpsertScanConfigurationRequest, User, ValidatedAssetResponse,
 };
-use super::pagination::PagedResponse;
+use super::pagination::{PagedResponse, PaginationParams};
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
 use crate::error::{ApiError, Result};
 
@@ -650,6 +656,97 @@ impl StackHawkClient {
                 Err(ApiError::InvalidResponse(error_msg).into())
             }
         }
+    }
+
+    /// Fetch a hosted asset (config or OAS) that uses presigned S3 URLs.
+    ///
+    /// The StackHawk API returns hosted assets via a two-step process:
+    /// 1. GET the asset endpoint → returns JSON with `presignedDownloadUrl`
+    /// 2. GET the presigned URL → returns the raw content (YAML/JSON)
+    ///
+    /// However, some environments (e.g., test/preprod) return a 308 redirect
+    /// directly to S3. Since reqwest follows redirects by default, this causes
+    /// the JSON body to be lost. This method handles both cases:
+    /// - If the response is 200 with JSON body → parse presigned URL, fetch content
+    /// - If reqwest followed a redirect to S3 → return the content directly
+    async fn fetch_hosted_asset(&self, path: &str) -> Result<String> {
+        // Get valid JWT
+        let jwt = self.get_valid_jwt().await?;
+
+        let url = format!("{}{}", self.base_url_v1, path);
+        debug!("Fetching hosted asset: GET {}", url);
+
+        let response = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .send()
+            .await
+            .map_err(ApiError::from)?;
+
+        let final_url = response.url().clone();
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            debug!("Hosted asset fetch failed: {} {}", status, body);
+            return Err(match status {
+                reqwest::StatusCode::NOT_FOUND => {
+                    ApiError::NotFound(format!("Hosted asset at {}", path))
+                }
+                reqwest::StatusCode::UNAUTHORIZED => {
+                    let full_url = format!("{}{}", self.base_url_v1, path);
+                    ApiError::unauthorized_feature(Some(&full_url), None)
+                }
+                reqwest::StatusCode::FORBIDDEN => ApiError::Forbidden,
+                _ => ApiError::ServerError(format!(
+                    "Failed to fetch hosted asset: HTTP {} - {}",
+                    status,
+                    body.lines().next().unwrap_or("unknown error")
+                )),
+            }
+            .into());
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        // Check if reqwest followed a redirect to S3 (the content IS the asset)
+        let was_redirected = final_url.host_str() != Some(url.split('/').nth(2).unwrap_or(""));
+        if was_redirected {
+            debug!("Redirect followed to S3 — returning content directly");
+            return Ok(body);
+        }
+
+        // No redirect — parse the JSON envelope to get the presigned URL
+        let asset_response: GetHostedAssetResponse = serde_json::from_str(&body).map_err(|e| {
+            debug!("Failed to parse hosted asset response: {}", e);
+            ApiError::InvalidResponse(format!(
+                "Failed to parse response: {} (line {}, col {})",
+                e,
+                e.line(),
+                e.column()
+            ))
+        })?;
+
+        let download_url = asset_response
+            .presigned_download_url
+            .ok_or_else(|| ApiError::InvalidResponse("No download URL in response".to_string()))?;
+
+        // Fetch the actual content from the presigned URL (no auth needed)
+        let content = self
+            .http
+            .get(&download_url)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?
+            .text()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        Ok(content)
     }
 
     /// Internal request implementation with retry support for rate limiting
@@ -1627,6 +1724,286 @@ impl TeamApi for StackHawkClient {
             .await?;
 
         Ok(())
+    }
+}
+
+// ============================================================================
+// PerchApi Implementation (Hosted Scan Control)
+// ============================================================================
+
+#[async_trait]
+impl PerchApi for StackHawkClient {
+    async fn start_scan(
+        &self,
+        app_id: &str,
+        env: Option<&str>,
+        config: Option<&str>,
+    ) -> Result<PerchCommandResponse> {
+        let path = format!("/app/{}/perch/start", app_id);
+
+        // Build the command request
+        let request = PerchCommandRequest {
+            command: Some(PerchCommand {
+                command: Some("START".to_string()),
+                id: None,
+                target_url: None,
+                error: None,
+            }),
+            id: None,
+            scan_config: config.map(|s| s.to_string()),
+            env: env.map(|s| s.to_string()),
+        };
+
+        let response: PerchCommandResponse = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response)
+    }
+
+    async fn stop_scan(&self, app_id: &str) -> Result<PerchCommandResponse> {
+        let path = format!("/app/{}/perch/stop", app_id);
+
+        // Build the stop command request
+        let request = PerchCommandRequest {
+            command: Some(PerchCommand {
+                command: Some("STOP".to_string()),
+                id: None,
+                target_url: None,
+                error: None,
+            }),
+            id: None,
+            scan_config: None,
+            env: None,
+        };
+
+        let response: PerchCommandResponse = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response)
+    }
+
+    async fn get_scan_status(&self, app_id: &str) -> Result<PerchDevice> {
+        let path = format!("/app/{}/perch/status", app_id);
+
+        let response: GetPerchDeviceResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
+            .await?;
+
+        // Extract device from response, return empty device if none
+        Ok(response.device.unwrap_or_else(|| PerchDevice {
+            application_id: Some(app_id.to_string()),
+            org_id: None,
+            id: None,
+            name: None,
+            device_address: None,
+            status: Some("NO_DEVICE".to_string()),
+            user_id: None,
+            created_date: None,
+            command: None,
+        }))
+    }
+}
+
+// ============================================================================
+// ConfigApi Implementation (Configuration Management)
+// ============================================================================
+
+#[async_trait]
+impl ConfigApi for StackHawkClient {
+    async fn get_scan_config(&self, org_id: &str, config_name: &str) -> Result<String> {
+        let path = format!("/configuration/{}/{}", org_id, config_name);
+        self.fetch_hosted_asset(&path).await
+    }
+
+    async fn set_scan_config(
+        &self,
+        org_id: &str,
+        name: &str,
+        content: &str,
+        config_type: ConfigType,
+    ) -> Result<()> {
+        let path = format!("/configuration/{}/update", org_id);
+
+        let request = UpsertScanConfigurationRequest {
+            conf: content.to_string(),
+            config_type,
+            name: name.to_string(),
+        };
+
+        // This endpoint returns empty body on success
+        let _: serde_json::Value = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await
+            .or_else(|e| {
+                // The API may return empty response on success
+                if let crate::error::Error::Api(ApiError::InvalidResponse(_)) = e {
+                    Ok(serde_json::Value::Null)
+                } else {
+                    Err(e)
+                }
+            })?;
+
+        Ok(())
+    }
+
+    async fn delete_scan_config(&self, org_id: &str, config_name: &str) -> Result<()> {
+        let path = format!("/configuration/{}/{}", org_id, config_name);
+
+        // DELETE request with no body
+        let _: serde_json::Value = self
+            .request_inner(reqwest::Method::DELETE, &self.base_url_v1, &path)
+            .await
+            .or_else(|e| {
+                // The API may return empty response on success
+                if let crate::error::Error::Api(ApiError::InvalidResponse(_)) = e {
+                    Ok(serde_json::Value::Null)
+                } else {
+                    Err(e)
+                }
+            })?;
+
+        Ok(())
+    }
+
+    async fn rename_scan_config(&self, org_id: &str, old_name: &str, new_name: &str) -> Result<()> {
+        let path = format!("/configuration/{}/rename", org_id);
+
+        let request = RenameConfigurationRequest {
+            original_name: old_name.to_string(),
+            new_name: new_name.to_string(),
+        };
+
+        // This endpoint returns empty body on success
+        let _: serde_json::Value = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await
+            .or_else(|e| {
+                // The API may return empty response on success
+                if let crate::error::Error::Api(ApiError::InvalidResponse(_)) = e {
+                    Ok(serde_json::Value::Null)
+                } else {
+                    Err(e)
+                }
+            })?;
+
+        Ok(())
+    }
+
+    async fn validate_scan_config(
+        &self,
+        org_id: &str,
+        content: &str,
+    ) -> Result<ValidatedAssetResponse> {
+        let path = format!("/configuration/{}/validate", org_id);
+
+        let request = UpsertScanConfigurationRequest {
+            conf: content.to_string(),
+            config_type: ConfigType::Org, // Validation doesn't care about type
+            name: String::new(),          // Name not needed for validation
+        };
+
+        let response: ValidatedAssetResponse = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response)
+    }
+}
+
+// ============================================================================
+// EnvironmentApi Implementation (Environment Management)
+// ============================================================================
+
+#[async_trait]
+impl EnvironmentApi for StackHawkClient {
+    async fn list_environments(
+        &self,
+        app_id: &str,
+        pagination: Option<&PaginationParams>,
+    ) -> Result<Vec<Environment>> {
+        let path = format!("/app/{}/env/list", app_id);
+        let query_params = pagination.map(|p| p.to_query_params()).unwrap_or_default();
+
+        let response: ListEnvironmentsResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(response.environments)
+    }
+
+    async fn get_environment_default_config(&self, app_id: &str, env_id: &str) -> Result<String> {
+        let path = format!("/app/{}/env/{}/config/default", app_id, env_id);
+
+        let response: EnvironmentConfigResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
+            .await?;
+
+        // Convert the config to YAML string
+        response.to_yaml().ok_or_else(|| {
+            ApiError::InvalidResponse("No configuration content in response".to_string()).into()
+        })
+    }
+
+    async fn create_environment(&self, app_id: &str, env_name: &str) -> Result<Application> {
+        let path = format!("/app/{}/env", app_id);
+
+        let request = NewEnvironmentRequest {
+            env: env_name.to_string(),
+        };
+
+        let response: Application = self
+            .request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await?;
+
+        Ok(response)
+    }
+
+    async fn delete_environment(&self, app_id: &str, env_id: &str) -> Result<()> {
+        let path = format!("/app/{}/env/{}", app_id, env_id);
+
+        // DELETE request returns empty body on success
+        let _: serde_json::Value = self
+            .request_inner(reqwest::Method::DELETE, &self.base_url_v1, &path)
+            .await
+            .or_else(|e| {
+                // The API may return empty response on success
+                if let crate::error::Error::Api(ApiError::InvalidResponse(_)) = e {
+                    Ok(serde_json::Value::Null)
+                } else {
+                    Err(e)
+                }
+            })?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// OAS API Implementation
+// ============================================================================
+
+#[async_trait]
+impl OASApi for StackHawkClient {
+    async fn get_oas(&self, org_id: &str, oas_id: &str) -> Result<String> {
+        let path = format!("/oas/{}/{}", org_id, oas_id);
+        self.fetch_hosted_asset(&path).await
+    }
+
+    async fn get_oas_mappings(&self, app_id: &str) -> Result<Vec<OASAsset>> {
+        let path = format!("/oas/{}/mapping", app_id);
+
+        let response: GetApplicationMappedOASResponse = self
+            .request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
+            .await?;
+
+        Ok(response.assets)
     }
 }
 
