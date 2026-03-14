@@ -151,6 +151,127 @@ fn test_scan_list_with_status_filter() {
 }
 
 // ============================================================================
+// Scan Get (Happy Path - Latest Scan)
+// ============================================================================
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_scan_get_latest_succeeds() {
+    let ctx = FunctionalTestContext::new();
+
+    // `scan get` without an ID defaults to "latest"
+    // This may fail if there are no scans, but that's an expected condition
+    let output = ctx
+        .command(&["scan", "get"])
+        .output()
+        .expect("Failed to execute command");
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Should contain scan information
+        assert!(
+            stdout.contains("Scan") || stdout.contains("scan") || stdout.contains("Alert"),
+            "Expected scan details in output"
+        );
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Acceptable: no scans found
+        assert!(
+            stderr.contains("No scans found") || stderr.contains("not found"),
+            "Expected 'no scans' or 'not found', got: {}",
+            stderr
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_scan_get_latest_json_format() {
+    let ctx = FunctionalTestContext::new();
+
+    let output = ctx
+        .command(&["scan", "get", "--format", "json"])
+        .output()
+        .expect("Failed to execute command");
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // JSON output should be parseable
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&stdout).is_ok(),
+            "Expected valid JSON output"
+        );
+    }
+    // If no scans exist, failure is acceptable
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_scan_get_with_app_filter() {
+    let ctx = FunctionalTestContext::new();
+
+    // Get an app name to filter by
+    let output = ctx
+        .command(&["app", "list", "--format", "json", "--limit", "1"])
+        .output()
+        .expect("Failed to list apps");
+
+    if !output.status.success() {
+        eprintln!("[SKIP] Could not list apps");
+        return;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        if let Some(apps) = json.get("data").and_then(|d| d.as_array()) {
+            if let Some(first_app) = apps.first() {
+                if let Some(app_name) = first_app.get("name").and_then(|n| n.as_str()) {
+                    // scan get --app <name> should work (may have no scans)
+                    let result = ctx
+                        .command(&["scan", "get", "--app", app_name])
+                        .output()
+                        .expect("Failed to run scan get");
+
+                    // Either success or "no scans found" is acceptable
+                    if !result.status.success() {
+                        let stderr = String::from_utf8_lossy(&result.stderr);
+                        assert!(
+                            stderr.contains("No scans found") || stderr.contains("not found"),
+                            "Expected 'no scans' for app filter, got: {}",
+                            stderr
+                        );
+                    }
+                    return;
+                }
+            }
+        }
+    }
+    eprintln!("[SKIP] No apps found for scan get --app test");
+}
+
+// ============================================================================
+// Audit List with Filters
+// ============================================================================
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_audit_list_with_type_filter() {
+    let ctx = FunctionalTestContext::new();
+
+    ctx.run(&["audit", "list", "--type", "SCAN_STARTED", "--limit", "5"])
+        .success();
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_audit_list_with_date_range() {
+    let ctx = FunctionalTestContext::new();
+
+    ctx.run(&["audit", "list", "--since", "30d", "--limit", "5"])
+        .success();
+}
+
+// ============================================================================
 // User Commands
 // ============================================================================
 

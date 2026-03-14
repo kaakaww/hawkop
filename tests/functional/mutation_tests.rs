@@ -340,6 +340,114 @@ fn test_team_remove_app_dry_run() {
 }
 
 // ============================================================================
+// Team Set-Users Tests (SCIM Sync)
+// ============================================================================
+
+/// Helper to get a real user email from the org for mutation tests.
+fn get_real_user_email() -> Option<String> {
+    let ctx = FunctionalTestContext::new();
+    let output = ctx
+        .command(&["user", "list", "--format", "json", "--limit", "1"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+    json.get("data")
+        .and_then(|d| d.as_array())
+        .and_then(|users| users.first())
+        .and_then(|u| u.get("email"))
+        .and_then(|e| e.as_str())
+        .map(|s| s.to_string())
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_team_set_users_dry_run() {
+    let email = match get_real_user_email() {
+        Some(e) => e,
+        None => {
+            eprintln!("[SKIP] Could not find a real user email for set-users test");
+            return;
+        }
+    };
+
+    let team = TestTeam::create();
+
+    if team.created {
+        let ctx = FunctionalTestContext::new();
+
+        // Dry run with a real user email
+        ctx.run(&["team", "set-users", &team.name, &email, "--dry-run"])
+            .success()
+            .stderr(predicate::str::contains("DRY RUN"));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_team_set_users_nonexistent_user_fails() {
+    let team = TestTeam::create();
+
+    if team.created {
+        let ctx = FunctionalTestContext::new();
+
+        // Using a nonexistent user should fail (even in non-dry-run)
+        ctx.run(&[
+            "team",
+            "set-users",
+            &team.name,
+            "nonexistent@fake-domain-12345.invalid",
+            "--yes",
+        ])
+        .failure()
+        .stderr(predicate::str::contains("not found").or(predicate::str::contains("Not found")));
+    }
+}
+
+// ============================================================================
+// Team Set-Apps Tests (Bulk Sync)
+// ============================================================================
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_team_set_apps_help_shows_usage() {
+    let ctx = FunctionalTestContext::new();
+
+    ctx.run(&["team", "set-apps", "--help"])
+        .success()
+        .stdout(predicate::str::contains("APPS"))
+        .stdout(predicate::str::contains("--stdin"))
+        .stdout(predicate::str::contains("--dry-run"))
+        .stdout(predicate::str::contains("--yes"));
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_team_set_apps_nonexistent_app_fails() {
+    let team = TestTeam::create();
+
+    if team.created {
+        let ctx = FunctionalTestContext::new();
+
+        // Using a nonexistent app should fail
+        ctx.run(&[
+            "team",
+            "set-apps",
+            &team.name,
+            "nonexistent-app-00000000-0000-0000-0000-000000000000",
+            "--yes",
+        ])
+        .failure()
+        .stderr(predicate::str::contains("not found").or(predicate::str::contains("Not found")));
+    }
+}
+
+// ============================================================================
 // Edge Cases
 // ============================================================================
 

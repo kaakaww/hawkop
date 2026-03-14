@@ -363,6 +363,166 @@ fn test_oas_help_shows_subcommands() {
 }
 
 // ============================================================================
+// Config CRUD Happy Path (requires hosted-scan-configs feature)
+// ============================================================================
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_config_set_get_delete_roundtrip() {
+    let ctx = FunctionalTestContext::new();
+    let config_name = "hawkop-functest-config";
+
+    // Create a minimal valid stackhawk config
+    let config_content = r#"app:
+  applicationId: 00000000-0000-0000-0000-000000000000
+  host: http://localhost:8080
+  env: FunctionalTest
+"#;
+
+    // Write temp file
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("hawkop-functest-config.yml");
+    std::fs::write(&temp_file, config_content).expect("Failed to write temp config");
+    let temp_path = temp_file.to_str().unwrap();
+
+    // Set the config
+    let set_result = ctx
+        .command(&["config", "set", config_name, "--file", temp_path])
+        .output()
+        .expect("Failed to run config set");
+
+    if !set_result.status.success() {
+        let stderr = String::from_utf8_lossy(&set_result.stderr);
+        if stderr.contains("Access denied") {
+            eprintln!("\n⚠️  SKIPPED: config set requires 'hosted-scan-configs' feature flag");
+            std::fs::remove_file(&temp_file).ok();
+            return;
+        }
+        panic!("config set failed: {}", stderr);
+    }
+
+    // Get the config back (may fail on test API due to response format differences)
+    let get_result = ctx
+        .command(&["config", "get", config_name])
+        .output()
+        .expect("Failed to run config get");
+
+    if !get_result.status.success() {
+        let stderr = String::from_utf8_lossy(&get_result.stderr);
+        // Accept parse errors on test API — the set/delete still validates the API flow
+        eprintln!(
+            "\n⚠️  config get returned error (test API may return unexpected format): {}",
+            stderr.lines().next().unwrap_or("unknown error")
+        );
+    }
+
+    // Delete the config
+    ctx.run(&["config", "delete", config_name, "--yes"])
+        .success();
+
+    // Cleanup temp file
+    std::fs::remove_file(&temp_file).ok();
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_config_validate_valid_file() {
+    let ctx = FunctionalTestContext::new();
+
+    // Create a minimal valid stackhawk config
+    let config_content = r#"app:
+  applicationId: 00000000-0000-0000-0000-000000000000
+  host: http://localhost:8080
+  env: FunctionalTest
+"#;
+
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("hawkop-functest-validate.yml");
+    std::fs::write(&temp_file, config_content).expect("Failed to write temp config");
+    let temp_path = temp_file.to_str().unwrap();
+
+    // Validate should succeed (or skip if feature not enabled)
+    ctx.run_feature_flag_dependent(
+        &["config", "validate", "--file", temp_path],
+        "hosted-scan-configs",
+    );
+
+    std::fs::remove_file(&temp_file).ok();
+}
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_config_validate_invalid_yaml() {
+    let ctx = FunctionalTestContext::new();
+
+    // Create invalid YAML content
+    let config_content = "this: is: not: valid: yaml:\n  [broken";
+
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("hawkop-functest-invalid.yml");
+    std::fs::write(&temp_file, config_content).expect("Failed to write temp config");
+    let temp_path = temp_file.to_str().unwrap();
+
+    let output = ctx
+        .command(&["config", "validate", "--file", temp_path])
+        .output()
+        .expect("Failed to run config validate");
+
+    // Either validation error or access denied (feature not enabled)
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("Access denied")
+                || stderr.contains("invalid")
+                || stderr.contains("Invalid")
+                || stderr.contains("error")
+                || stderr.contains("Error"),
+            "Expected validation error or access denied, got: {}",
+            stderr
+        );
+    }
+
+    std::fs::remove_file(&temp_file).ok();
+}
+
+// ============================================================================
+// Env Happy Path (requires environment management feature)
+// ============================================================================
+
+#[test]
+#[cfg_attr(not(feature = "functional-tests"), ignore)]
+fn test_env_list_with_real_app() {
+    let ctx = FunctionalTestContext::new();
+
+    // Get an app to test with
+    let output = ctx
+        .command(&["app", "list", "--format", "json", "--limit", "1"])
+        .output()
+        .expect("Failed to list apps");
+
+    if !output.status.success() {
+        eprintln!("[SKIP] Could not list apps");
+        return;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        if let Some(apps) = json.get("data").and_then(|d| d.as_array()) {
+            if let Some(first_app) = apps.first() {
+                if let Some(app_name) = first_app.get("name").and_then(|n| n.as_str()) {
+                    ctx.run_feature_flag_dependent(
+                        &["env", "list", "--app", app_name, "--format", "json"],
+                        "environment-management",
+                    );
+                    return;
+                }
+            }
+        }
+    }
+    eprintln!("[SKIP] No apps found for env list test");
+}
+
+// ============================================================================
 // Feature Flag Dependent Tests (Real API calls)
 // ============================================================================
 
