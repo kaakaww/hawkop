@@ -128,6 +128,59 @@ See `src/client/models/user.rs` - `UpdateTeamRequest` struct for implementation 
 
 ---
 
+## OAS Endpoint Migration (2026-03 spec update)
+
+### The Issue
+
+**The org-scoped OAS endpoints were removed from the OpenAPI spec and replaced with app-scoped endpoints.**
+
+Two endpoints our code calls are no longer in the spec:
+
+| Removed Endpoint | HawkOp Command | Replacement |
+|-----------------|----------------|-------------|
+| `GET /api/v1/oas/{orgId}/list` | `oas list` | No direct replacement — use `GET /api/v1/oas/{appId}/mapping` per-app |
+| `GET /api/v1/oas/{orgId}/{oasId}` | `oas get` | No direct replacement in spec |
+
+### Current State
+
+The endpoints may still work at the API level even though they've been removed from the spec. API endpoints are often removed from documentation before the actual code is decommissioned.
+
+### Impact on HawkOp
+
+- `oas list` (`src/cli/oas.rs:list()`) calls `list_oas()` → `GET /api/v1/oas/{orgId}/list`
+- `oas get` (`src/cli/oas.rs:get()`) calls `get_oas()` → `GET /api/v1/oas/{orgId}/{oasId}`
+- `oas mappings` (`src/cli/oas.rs:mappings()`) calls `get_oas_mappings()` → `GET /api/v1/oas/{appId}/mapping` — **still in spec, works fine**
+
+### Migration Path
+
+1. **Short term**: Test if removed endpoints still respond. If they do, no immediate breakage.
+2. **Medium term**: Migrate `oas list` to iterate over apps and call `GET /api/v1/oas/{appId}/mapping` for each, or accept an `--app` filter.
+3. **Long term**: Remove `oas get` (no replacement endpoint) or find alternative.
+
+### New Endpoint Available
+
+`POST /api/v1/oas/{appId}/upload` — Upload an OpenAPI spec file to an application. This is a new capability not previously available.
+
+### Code References
+
+- Client implementation: `src/client/stackhawk.rs` (lines ~1415 and ~1995)
+- API trait: `src/client/api/oas.rs`
+- CLI handler: `src/cli/oas.rs`
+
+---
+
+## Environment Config Default Endpoint Removed (2026-03 spec update)
+
+### The Issue
+
+`GET /api/v1/app/{appId}/env/{envId}/config/default` was removed from the OpenAPI spec.
+
+### Impact on HawkOp
+
+If `env config` is implemented (listed in CHANGELOG as unreleased), it calls this removed endpoint. Verify whether this command exists in code and if so, whether the API still responds.
+
+---
+
 ## General Guidelines for StackHawk APIs
 
 1. **Don't trust "readOnly" in OpenAPI** - Test actual behavior
@@ -135,3 +188,4 @@ See `src/client/models/user.rs` - `UpdateTeamRequest` struct for implementation 
 3. **Fetch before mutate** - Get current state, modify locally, PUT back
 4. **Use fresh reads** - Bypass cache before mutations
 5. **Handle pagination** - Large datasets may have paginated results
+6. **Spec removals lag decommissioning** - Endpoints removed from the spec may still work temporarily

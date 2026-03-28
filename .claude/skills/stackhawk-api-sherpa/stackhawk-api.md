@@ -1,9 +1,9 @@
 # StackHawk API Reference for HawkOp
 
-> **Last Updated**: 2026-01-18
+> **Last Updated**: 2026-03-28
 > **OpenAPI Spec Version**: 3.0.1
 > **HawkOp Version**: 0.4.0
-> **Total Endpoints**: 51 | **Implemented**: 20 (~39%)
+> **Total Endpoints**: 55 | **Implemented**: 33 (~60%)
 
 ---
 
@@ -46,17 +46,25 @@ Organization (org)
 │   │   ├── Alerts (plugin-level findings)
 │   │   │   └── Alert URIs (specific vulnerable paths)
 │   │   │       └── Messages (HTTP request/response)
+│   │   │           └── Finding Hash (stable cross-scan identifier)
 │   │   └── Alert Stats (H/M/L counts)
+│   ├── Profile Scans (testability analysis)
+│   │   ├── Classification (SPA, API, website, static)
+│   │   ├── Auth Markers (detected auth signals)
+│   │   ├── Path Discovery (static/dynamic/auth-protected)
+│   │   ├── Asset Inventory (scripts, media, dynamic content)
+│   │   └── Recommendations
+│   ├── Findings Triage (bulk status updates by hash)
 │   ├── Scan Policies (which checks to run)
-│   └── Alert Rules (notifications)
+│   └── Hosted OAS (app-scoped OpenAPI specs)
 ├── Teams
 │   ├── Members (users)
 │   └── Applications (team ownership)
 ├── Repositories (attack surface)
 │   ├── Sensitive Data Tags
 │   └── Application Mappings
-├── Hosted OAS Files (OpenAPI specs)
 ├── Scan Configurations (YAML files)
+├── Global Configurations (shared HawkScan configs)
 └── Audit Log
 ```
 
@@ -112,7 +120,7 @@ Organization (org)
 | 🔲 | POST | `/api/v1/org/{orgId}/app` | - | Create application |
 | 🔲 | POST | `/api/v1/app/{appId}` | - | Update application |
 | 🔲 | DELETE | `/api/v1/app/{appId}` | - | Delete application |
-| 🔲 | GET | `/api/v1/app/{appId}/env/list` | - | List environments |
+| ✅ | GET | `/api/v1/app/{appId}/env/list` | `env list` | List environments |
 | 🔲 | GET | `/api/v2/org/{orgId}/envs` | - | List environments (v2) |
 
 **App fields**: `applicationId`, `name`, `cloudScanTargets[]`, `env`, `riskGrade`
@@ -120,22 +128,23 @@ Organization (org)
 **Potential commands**:
 - `app get <ID>` - View single app details
 - `app create` - Create new application
-- `env list --app <ID>` - List app environments
 
 ---
 
-### Environments (4 endpoints)
+### Environments (3 endpoints)
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
-| 🔲 | POST | `/api/v1/app/{appId}/env` | - | Create environment |
+| ✅ | POST | `/api/v1/app/{appId}/env` | `env create` | Create environment |
 | 🔲 | POST | `/api/v1/app/{appId}/env/{envId}` | - | Update environment |
-| 🔲 | DELETE | `/api/v1/app/{appId}/env/{envId}` | - | Delete environment |
-| 🔲 | GET | `/api/v1/app/{appId}/env/{envId}/config/default` | - | Get default YAML config |
+| ✅ | DELETE | `/api/v1/app/{appId}/env/{envId}` | `env delete` | Delete environment |
+
+**Removed in spec (2026-03)**:
+- ~~`GET /api/v1/app/{appId}/env/{envId}/config/default`~~ — Get default YAML config endpoint removed
 
 ---
 
-### Scans & Results (6 endpoints)
+### Scans & Results (7 endpoints)
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
@@ -145,33 +154,52 @@ Organization (org)
 | ✅ | GET | `/api/v1/scan/{scanId}/uri/{alertUriId}/messages/{messageId}` | `scan get --message` | HTTP request/response |
 | 🔲 | DELETE | `/api/v1/scan/{scanId}` | - | Delete a scan |
 | 🔲 | GET | `/api/v1/reports/org/{orgId}/findings` | - | Organization findings report |
+| 🔲 | POST | `/api/v1/org/{orgId}/app/{appId}/env/{envId}/findings/triage` | - | Bulk triage findings by hash |
 
 **Scan fields**: `scanId`, `applicationId`, `applicationName`, `scanStatus`, `alertStats`, `startedTimestamp`, `completedTimestamp`
 **Alert fields**: `pluginId`, `pluginName`, `severity`, `count`, `paths[]`
+**Finding hash**: `findingHash` — SHA-256 stable identifier for a finding across scans (on `AlertMsgResponse` and `ApplicationAlertUri`)
 
 **Implemented features**:
 - Drill-down: scan → alerts → URIs → messages
 - Filter by severity, plugin, path
 - View full HTTP request/response with `--curl` flag
 
+**New in spec (2026-03)**:
+- `tag` query parameter on scan list: filter by `name:value`, supports OR (`|`), wildcards (`*`), and AND (repeat param). Example: `tag=branch:main|develop`
+- `findingHash` field added to `AlertMsgResponse` and `ApplicationAlertUri` — enables cross-scan finding tracking
+- Bulk triage endpoint accepts array of `FindingTriageAction` with `findingHash`, `status`, and optional `note`
+
+**Potential commands**:
+- `scan list --tag branch:main` - Filter scans by tag
+- `findings triage --app <APP> --env <ENV>` - Bulk triage findings
+
 ---
 
-### Scan Control - Perch (3 endpoints)
+### Scan Control - Perch (5 endpoints)
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
-| 🔲 | POST | `/api/v1/app/{appId}/perch/start` | - | Start hosted scan |
-| 🔲 | GET | `/api/v1/app/{appId}/perch/status` | - | Get scan status |
-| 🔲 | POST | `/api/v1/app/{appId}/perch/stop` | - | Stop hosted scan |
+| ✅ | POST | `/api/v1/app/{appId}/perch/start` | `run start` | Start hosted scan |
+| ✅ | GET | `/api/v1/app/{appId}/perch/status` | `run status` | Get scan status |
+| ✅ | POST | `/api/v1/app/{appId}/perch/stop` | `run stop` | Stop hosted scan |
+| 🔲 | POST | `/api/v1/app/{appId}/perch/profile-scan` | - | Launch profile scan (testability analysis) |
+| 🔲 | POST | `/api/v1/org/{orgId}/perch/status` | - | Search devices for multiple apps (bulk status) |
+
+**New in spec (2026-03)**:
+- Profile scan launch via Perch — triggers automatic OpenAPI spec discovery and testability analysis
+- Bulk device status — query scan device state across multiple apps in one call
+- `PerchDevice` now includes `configValidationResult`, `scanId`, `updatedDate`
 
 **Potential commands**:
-- `scan start --app <ID>` - Trigger hosted scan
-- `scan status --app <ID>` - Check running scan
-- `scan stop --app <ID>` - Cancel scan
+- `run start --app <ID>` - Trigger hosted scan
+- `run status --app <ID>` - Check running scan
+- `run stop --app <ID>` - Cancel scan
+- `run profile --app <ID>` - Launch profile scan
 
 ---
 
-### Scan Policies (9 endpoints)
+### Scan Policies (7 endpoints)
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
@@ -180,10 +208,12 @@ Organization (org)
 | 🔲 | GET | `/api/v1/policy` | - | Get single SH policy |
 | 🔲 | GET | `/api/v1/policy/{orgId}/{policyName}` | - | Get org policy |
 | 🔲 | POST | `/api/v1/policy/{orgId}/update` | - | Update org policy |
-| 🔲 | DELETE | `/api/v1/policy/{orgId}/{policyName}` | - | Delete org policy |
-| 🔲 | GET | `/api/v1/app/{appId}/policy` | - | Get app's assigned policy |
 | 🔲 | PUT | `/api/v1/app/{appId}/policy/assign` | - | Assign policy to app |
 | 🔲 | GET | `/api/v1/app/{appId}/policy/plugins/{pluginId}/{toggle}` | - | Toggle plugin |
+
+**Removed in spec (2026-03)**:
+- ~~`DELETE /api/v1/policy/{orgId}/{policyName}`~~ — Policy delete method removed
+- ~~`GET /api/v1/app/{appId}/policy`~~ — App policy get endpoint removed
 
 **Policy fields**: `name`, `type` (Stackhawk/Organization), `plugins[]`, `enabled`
 
@@ -194,16 +224,11 @@ Organization (org)
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
 | ✅ | GET | `/api/v1/configuration/{orgId}/list` | `config list` | List YAML configs |
-| 🔲 | GET | `/api/v1/configuration/{orgId}/{configName}` | - | Get config content |
-| 🔲 | POST | `/api/v1/configuration/{orgId}/update` | - | Create/update config |
-| 🔲 | POST | `/api/v1/configuration/{orgId}/rename` | - | Rename config |
-| 🔲 | POST | `/api/v1/configuration/{orgId}/validate` | - | Validate YAML |
-| 🔲 | DELETE | `/api/v1/configuration/{orgId}/{configName}` | - | Delete config |
-
-**Potential commands**:
-- `config get <NAME>` - View config YAML
-- `config validate <FILE>` - Validate local YAML
-- `config upload <FILE>` - Upload config
+| ✅ | GET | `/api/v1/configuration/{orgId}/{configName}` | `config get` | Get config content |
+| ✅ | POST | `/api/v1/configuration/{orgId}/update` | `config set` | Create/update config |
+| ✅ | POST | `/api/v1/configuration/{orgId}/rename` | `config rename` | Rename config |
+| ✅ | POST | `/api/v1/configuration/{orgId}/validate` | `config validate` | Validate YAML |
+| ✅ | DELETE | `/api/v1/configuration/{orgId}/{configName}` | `config delete` | Delete config |
 
 ---
 
@@ -244,16 +269,25 @@ Organization (org)
 
 ---
 
-### Hosted OAS (4 endpoints)
+### Hosted OAS (3 endpoints)
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
-| ✅ | GET | `/api/v1/oas/{orgId}/list` | `oas list` | List OpenAPI specs |
-| 🔲 | GET | `/api/v1/oas/{orgId}/{oasId}` | - | Get spec content |
-| 🔲 | GET | `/api/v1/oas/{appId}/mapping` | - | App's mapped specs |
+| ✅ | GET | `/api/v1/oas/{appId}/mapping` | `oas mappings` | App's mapped specs |
 | 🔲 | POST | `/api/v1/oas/{appId}/mapping` | - | Map spec to app |
+| 🔲 | POST | `/api/v1/oas/{appId}/upload` | - | Upload OpenAPI spec file |
+
+**⚠️ BREAKING CHANGE (2026-03)**: OAS endpoints restructured from org-scoped to app-scoped:
+- ~~`GET /api/v1/oas/{orgId}/list`~~ — **Removed** (was used by `oas list` command)
+- ~~`GET /api/v1/oas/{orgId}/{oasId}`~~ — **Removed** (was used by `oas get` command)
+
+Our `oas list` and `oas get` commands call removed endpoints. They may still work if the API hasn't been decommissioned yet, but should be migrated to use app-scoped `GET /api/v1/oas/{appId}/mapping` instead. See `api-quirks.md` for migration details.
 
 **OAS fields**: `oasId`, `fileName`, `fileSize`, `uploadedAt`, `applications[]`
+
+**Potential commands**:
+- `oas upload --app <APP> <FILE>` - Upload an OpenAPI spec
+- `oas map --app <APP>` - Map/unmap specs to an app
 
 ---
 
@@ -267,11 +301,44 @@ Organization (org)
 
 ---
 
-### Alert Rules (1 endpoint)
+### Profile Scans (4 endpoints) — NEW
 
 | Status | Method | Endpoint | HawkOp | Description |
 |--------|--------|----------|--------|-------------|
-| 🔲 | POST | `/api/v1/app/{appId}/alerts/rules/{integrationId}` | - | Upsert alert rule |
+| 🔲 | GET | `/api/v1/app/{appId}/profile/results` | - | Get latest profile scan result |
+| 🔲 | GET | `/api/v1/app/{appId}/profile/results/list` | - | List profile scan results |
+| 🔲 | GET | `/api/v1/app/{appId}/profile/results/{scanId}` | - | Get specific profile scan result |
+| 🔲 | POST | `/api/v1/org/{orgId}/profile/results` | - | Bulk get latest results for multiple apps |
+
+Profile scans perform **testability analysis** on applications. Results include:
+- **Classification**: `APP_SPA_WITH_AUTH`, `APP_API_WITH_AUTH`, `APP_PUBLIC_WEBSITE`, `APP_STATIC_SITE`, `APP_CLASSIFICATION_UNKNOWN`
+- **Testability score**: `TESTABILITY_HIGH`, `TESTABILITY_MEDIUM`, `TESTABILITY_LOW` with score reasons
+- **Auth markers**: Detected authentication signals with confidence and evidence
+- **Path discovery**: Static, dynamic, and auth-protected path counts with samples
+- **Asset inventory**: Scripts, static media, dynamic content with sizes
+- **Recommendations**: Actionable strings for improving scan coverage
+- **Discovered OpenAPI spec path**: Auto-detected spec location (e.g., `/api/v3/api-docs`)
+
+**Potential commands**:
+- `profile get --app <APP>` - View latest profile scan result
+- `profile list --app <APP>` - List profile scan history
+- `profile get --app <APP> --scan <ID>` - View specific result
+
+---
+
+### Global Configuration (1 endpoint) — NEW
+
+| Status | Method | Endpoint | HawkOp | Description |
+|--------|--------|----------|--------|-------------|
+| 🔲 | GET | `/api/v1/global-configuration/{configName}` | - | Get global HawkScan config (redirects to S3) |
+
+Returns a redirect to S3 presigned URL for shared HawkScan configuration files. Requires `read:scan_config` permission.
+
+---
+
+### Alert Rules — REMOVED
+
+~~`POST /api/v1/app/{appId}/alerts/rules/{integrationId}`~~ — Upsert alert rule endpoint removed from spec in 2026-03 update.
 
 ---
 
@@ -332,13 +399,22 @@ See `CLAUDE.md` → "Adding New Commands" for detailed patterns.
 - **`app create/delete`** - Manage applications
 - **`config get/upload`** - Manage scan configurations
 - **`findings`** - Organization-wide findings report
+- **`profile get/list`** - Profile scan testability analysis (NEW in 2026-03)
+- **`findings triage`** - Bulk triage findings by hash (NEW in 2026-03)
+- **`scan list --tag`** - Filter scans by tag (NEW parameter in 2026-03)
 
 ### Medium Value
 - **`policy assign`** - Assign policies to apps
 - **`env create/delete`** - Environment management
 - **`user teams`** - List teams for a specific user
+- **`oas upload`** - Upload OpenAPI spec to an app (NEW in 2026-03)
 
 ### Lower Priority
 - **`repo sensitive`** - View sensitive data in repos
-- **`oas get/map`** - Manage OpenAPI specs
-- **`alert rules`** - Configure notifications
+- **`oas map`** - Map/unmap specs to apps
+- **`global-config get`** - Fetch shared HawkScan configs (NEW in 2026-03)
+
+### Removed from API (no longer available)
+- ~~`alert rules`~~ - Alert rule upsert endpoint removed
+- ~~`policy delete`~~ - Policy delete method removed
+- ~~`app policy get`~~ - App policy get endpoint removed
