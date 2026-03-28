@@ -1,7 +1,7 @@
 # HawkOp CLI Reference
 
-**Last updated**: 2026-03-14
-**Version**: v0.4.0
+**Last updated**: 2026-03-28
+**Version**: v0.5.1
 **Source of truth**: `src/cli/mod.rs` (clap derives)
 
 Complete taxonomy of every command, subcommand, argument, option, and alias in the HawkOp CLI. Planned (not yet implemented) commands are marked with `[planned]`.
@@ -207,18 +207,25 @@ List all applications in the current organization.
 | API call | `GET /api/v2/org/{orgId}/apps` |
 | Handler | `src/cli/app.rs` |
 
-#### `app get` [planned]
+#### `app get`
 
-Get a single application by ID.
+Get application details by ID or name.
 
-| Flag | Type | Description |
-|------|------|-------------|
-| `<APP>` | String (positional) | Application name or ID |
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | | Application ID (UUID) |
+| `--name` | `-n` | `String` | | Application name (resolved via API) |
+
+One of `<APP_ID>` or `--name` is required (mutually exclusive).
 
 | Component | Value |
 |-----------|-------|
-| API call | `GET /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
+| API call | `GET /api/v1/app/{appId}` or `GET /api/v2/org/{orgId}/apps` (name lookup) |
+| Handler | `src/cli/app.rs` |
+
+**Output:**
+- **Pretty/table**: displays app details in table format
+- **JSON**: full application object wrapped in `{data, meta}`
 
 #### `app create`
 
@@ -243,23 +250,42 @@ Create a new application in the current organization.
 - **Pretty/table**: prints application ID to stdout (pipeable), confirmation to stderr
 - **JSON**: full application object wrapped in `{data, meta}`
 
-#### `app update` [planned]
+#### `app update`
 
-Update an existing application.
+Rename an existing application.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | **Required** | Application ID (UUID) |
+| `--name` | `-n` | `String` | **Required** | New application name |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
 
 | Component | Value |
 |-----------|-------|
 | API call | `POST /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
+| Handler | `src/cli/app.rs` |
 
-#### `app delete` [planned]
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: updated application object wrapped in `{data, meta}`
 
-Delete an application.
+#### `app delete`
+
+Delete an application permanently.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | **Required** | Application ID (UUID) |
+| `--yes` | `-y` | `bool` | | Skip confirmation prompt |
 
 | Component | Value |
 |-----------|-------|
 | API call | `DELETE /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
+| Handler | `src/cli/app.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: `{data: {deleted: true, applicationId}, meta}` to stdout
 
 #### `app policy get` [planned]
 
@@ -714,23 +740,55 @@ List repositories in the organization's attack surface.
 | API call | `GET /api/v1/org/{orgId}/repos` |
 | Handler | `src/cli/repo.rs` |
 
-#### `repo associate` [planned]
+#### `repo link`
 
-Associate applications to repositories.
+Link an application to a repository (additive, preserves existing mappings).
 
-| Component | Value |
-|-----------|-------|
-| API call | `PUT /api/v1/org/{orgId}/repos/apps` |
-| Roadmap | Phase 4 |
+Uses a **read-merge-write** pattern: reads existing mappings, adds the new app,
+then POSTs the full list (the API uses full-replacement semantics).
 
-#### `repo set-apps` [planned]
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--repo-id` | | `String` | | Repository ID (UUID) |
+| `--repo` | | `String` | | Repository name (resolved via API) |
+| `--app-id` | | `String` | | Existing application ID to link |
+| `--app-name` | | `String` | | New application name (creates app + links) |
+| `--env` | `-e` | `String` | `Development` | Environment for new app (only with `--app-name`) |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
 
-Replace repository application mappings.
+One of `--repo-id` or `--repo` is required (mutually exclusive).
+One of `--app-id` or `--app-name` is required (mutually exclusive).
 
 | Component | Value |
 |-----------|-------|
 | API call | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
-| Roadmap | Phase 4 |
+| Handler | `src/cli/repo.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: response object wrapped in `{data, meta}` to stdout
+
+#### `repo set-apps`
+
+Replace ALL application mappings for a repository (full replacement).
+
+**Warning**: Existing mappings not in the list will be removed. Use `repo link` for additive operations.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--repo-id` | | `String` | **Required** | Repository ID (UUID) |
+| `--app-ids` | | `String` (comma-separated) | **Required** | Application IDs |
+| `--yes` | `-y` | `bool` | | Skip confirmation prompt |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
+
+| Component | Value |
+|-----------|-------|
+| API call | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
+| Handler | `src/cli/repo.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: response object wrapped in `{data, meta}` to stdout
 
 #### `repo sensitive-data` [planned]
 

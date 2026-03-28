@@ -46,7 +46,8 @@ pub use perch::{
 };
 pub use policy::{OrgPolicy, PolicyType, StackHawkPolicy};
 pub use repo::{
-    OpenApiSpecInfo, RepoAppInfo, RepoContributor, RepoInsight, Repository, SensitiveDataTag,
+    OpenApiSpecInfo, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse, RepoAppInfo,
+    RepoAppInfoWrite, RepoContributor, RepoInsight, Repository, SensitiveDataTag,
 };
 pub use scan::{AlertStats, AlertStatusStats, Scan, ScanMetadata, ScanResult, ScanTag};
 pub use secret::Secret;

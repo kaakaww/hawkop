@@ -104,6 +104,15 @@ async fn run() -> Result<()> {
                 )
                 .await
             }
+            AppCommands::Get { app_id, name } => {
+                cli::app::get(&opts, app_id.as_deref(), name.as_deref()).await
+            }
+            AppCommands::Update {
+                app_id,
+                name,
+                dry_run,
+            } => cli::app::update(&opts, &app_id, &name, dry_run).await,
+            AppCommands::Delete { app_id, yes } => cli::app::delete(&opts, &app_id, yes).await,
         },
         Commands::Scan(scan_cmd) => match scan_cmd {
             ScanCommands::List {
@@ -225,6 +234,31 @@ async fn run() -> Result<()> {
         },
         Commands::Repo(repo_cmd) => match repo_cmd {
             RepoCommands::List { pagination } => cli::repo::list(&opts, &pagination).await,
+            RepoCommands::Link {
+                repo_id,
+                repo_name,
+                app_id,
+                app_name,
+                env,
+                dry_run,
+            } => {
+                cli::repo::link(
+                    &opts,
+                    repo_id.as_deref(),
+                    repo_name.as_deref(),
+                    app_id.as_deref(),
+                    app_name.as_deref(),
+                    &env,
+                    dry_run,
+                )
+                .await
+            }
+            RepoCommands::SetApps {
+                repo_id,
+                app_ids,
+                yes,
+                dry_run,
+            } => cli::repo::set_apps(&opts, &repo_id, &app_ids, yes, dry_run).await,
         },
         Commands::Oas(oas_cmd) => match oas_cmd {
             OasCommands::List { pagination } => cli::oas::list(&opts, &pagination).await,

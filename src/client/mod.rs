@@ -20,8 +20,8 @@ pub mod stackhawk;
 
 // Re-export sub-traits
 pub use api::{
-    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi,
-    TeamApi,
+    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, RepoApi,
+    ScanDetailApi, TeamApi,
 };
 
 #[cfg(test)]

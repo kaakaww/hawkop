@@ -7,13 +7,13 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::api::{AppApi, AuthApi, ListingApi, ScanDetailApi, TeamApi};
+use super::api::{AppApi, AuthApi, ListingApi, RepoApi, ScanDetailApi, TeamApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     CreateApplicationRequest, CreateTeamRequest, CurrentFindingsResponse, JwtToken, OASAsset,
-    OrgPolicy, Organization, Repository, ScanConfig, ScanMessage, ScanResult, Secret,
-    StackHawkPolicy, Team, TeamApplication, TeamDetail, TeamUser, UpdateApplicationTeamRequest,
-    UpdateTeamRequest, User,
+    OrgPolicy, Organization, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse,
+    RepoAppInfo, Repository, ScanConfig, ScanMessage, ScanResult, Secret, StackHawkPolicy, Team,
+    TeamApplication, TeamDetail, TeamUser, UpdateApplicationTeamRequest, UpdateTeamRequest, User,
 };
 use super::pagination::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::{ApiError, Result};
@@ -802,6 +802,60 @@ impl TeamApi for MockStackHawkClient {
         self.check_error().await?;
         // For mock, just succeed
         Ok(())
+    }
+}
+
+// ============================================================================
+// RepoApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl RepoApi for MockStackHawkClient {
+    async fn get_repo(&self, _org_id: &str, repo_id: &str) -> Result<Repository> {
+        self.check_error().await?;
+
+        let repos = self.repos.lock().await;
+        repos
+            .iter()
+            .find(|r| r.id.as_deref() == Some(repo_id))
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound(format!("Repository not found: {}", repo_id)).into())
+    }
+
+    async fn replace_repo_app_mappings(
+        &self,
+        request: ReplaceRepoAppMappingsRequest,
+    ) -> Result<ReplaceRepoAppMappingsResponse> {
+        self.check_error().await?;
+
+        // Update the mock repo's app_infos
+        let mut repos = self.repos.lock().await;
+        if let Some(repo) = repos
+            .iter_mut()
+            .find(|r| r.id.as_deref() == Some(&request.repo_id))
+        {
+            repo.app_infos = request
+                .app_infos
+                .iter()
+                .map(|ai| RepoAppInfo {
+                    app_id: ai.id.clone(),
+                    app_name: ai.name.clone(),
+                })
+                .collect();
+        }
+
+        Ok(ReplaceRepoAppMappingsResponse {
+            org_id: Some(request.org_id),
+            repo_id: Some(request.repo_id),
+            app_infos: request
+                .app_infos
+                .into_iter()
+                .map(|ai| RepoAppInfo {
+                    app_id: ai.id,
+                    app_name: ai.name,
+                })
+                .collect(),
+        })
     }
 }
 

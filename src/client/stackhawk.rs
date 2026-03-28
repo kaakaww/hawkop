@@ -16,8 +16,8 @@ use tokio::sync::RwLock;
 use serde::de::{self, Deserializer};
 
 use super::api::{
-    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi,
-    TeamApi,
+    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, RepoApi,
+    ScanDetailApi, TeamApi,
 };
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
@@ -25,9 +25,10 @@ use super::models::{
     EnvironmentConfigResponse, GetApplicationMappedOASResponse, GetHostedAssetResponse,
     GetPerchDeviceResponse, JwtToken, ListEnvironmentsResponse, NewEnvironmentRequest, OASAsset,
     OrgPolicy, Organization, PerchCommand, PerchCommandRequest, PerchCommandResponse, PerchDevice,
-    RenameConfigurationRequest, Repository, ScanAlertsResponse, ScanConfig, ScanResult, Secret,
-    StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest,
-    UpsertScanConfigurationRequest, User, ValidatedAssetResponse,
+    RenameConfigurationRequest, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse,
+    Repository, ScanAlertsResponse, ScanConfig, ScanResult, Secret, StackHawkPolicy, Team,
+    TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest, UpsertScanConfigurationRequest,
+    User, ValidatedAssetResponse,
 };
 use super::pagination::{PagedResponse, PaginationParams};
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
@@ -2046,6 +2047,58 @@ impl OASApi for StackHawkClient {
 
 // ============================================================================
 // AppApi Implementation (Application CRUD)
+// ============================================================================
+
+// ============================================================================
+// RepoApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl RepoApi for StackHawkClient {
+    async fn get_repo(&self, org_id: &str, repo_id: &str) -> Result<Repository> {
+        // Fetch repo list and find by ID (no single-repo GET endpoint exists)
+        let repos: Vec<Repository> = self.list_repos(org_id, None).await?;
+        repos
+            .into_iter()
+            .find(|r| r.id.as_deref() == Some(repo_id))
+            .ok_or_else(|| ApiError::NotFound(format!("Repository not found: {}", repo_id)).into())
+    }
+
+    async fn replace_repo_app_mappings(
+        &self,
+        request: ReplaceRepoAppMappingsRequest,
+    ) -> Result<ReplaceRepoAppMappingsResponse> {
+        let path = format!(
+            "/org/{}/repo/{}/applications",
+            request.org_id, request.repo_id
+        );
+
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ApiRequest {
+            org_id: String,
+            repo_id: String,
+            app_infos: Vec<crate::client::models::RepoAppInfoWrite>,
+        }
+
+        let api_request = ApiRequest {
+            org_id: request.org_id,
+            repo_id: request.repo_id,
+            app_infos: request.app_infos,
+        };
+
+        self.request_with_body(
+            reqwest::Method::POST,
+            &self.base_url_v1,
+            &path,
+            &api_request,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// AppApi Implementation
 // ============================================================================
 
 #[async_trait]

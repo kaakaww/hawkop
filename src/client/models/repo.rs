@@ -119,3 +119,54 @@ pub struct RepoInsight {
     #[serde(default)]
     pub value: String,
 }
+
+/// Request to replace all application mappings for a repository
+///
+/// Used by `POST /api/v1/org/{orgId}/repo/{repoId}/applications`.
+/// The API replaces all mappings, so callers must include existing
+/// mappings they want to preserve (read-merge-write pattern).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceRepoAppMappingsRequest {
+    /// Organization ID
+    pub org_id: String,
+
+    /// Repository ID
+    pub repo_id: String,
+
+    /// Complete list of application mappings (replaces existing)
+    pub app_infos: Vec<RepoAppInfoWrite>,
+}
+
+/// Application info for write operations (link/set-apps)
+///
+/// When linking an existing app, only `id` is needed.
+/// When creating a new app, only `name` is needed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAppInfoWrite {
+    /// Application ID (for linking existing apps)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Application name (for creating new apps)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Response from replace repository application mappings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceRepoAppMappingsResponse {
+    /// Organization ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<String>,
+
+    /// Repository ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_id: Option<String>,
+
+    /// Updated list of application mappings
+    #[serde(default)]
+    pub app_infos: Vec<RepoAppInfo>,
+}

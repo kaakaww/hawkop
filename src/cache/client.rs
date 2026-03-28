@@ -10,15 +10,16 @@ use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
 use crate::client::api::{
-    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi,
-    TeamApi,
+    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, RepoApi,
+    ScanDetailApi, TeamApi,
 };
 use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
     ConfigType, CreateApplicationRequest, CreateTeamRequest, CurrentFindingsResponse, Environment,
-    JwtToken, OASAsset, OrgPolicy, Organization, PerchCommandResponse, PerchDevice, Repository,
-    ScanConfig, ScanResult, Secret, StackHawkPolicy, Team, TeamDetail,
-    UpdateApplicationTeamRequest, UpdateTeamRequest, User, ValidatedAssetResponse,
+    JwtToken, OASAsset, OrgPolicy, Organization, PerchCommandResponse, PerchDevice,
+    ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse, Repository, ScanConfig,
+    ScanResult, Secret, StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest,
+    UpdateTeamRequest, User, ValidatedAssetResponse,
 };
 use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
@@ -160,6 +161,25 @@ impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
                     // Clear all team detail caches
                     let _ = guard.delete_by_endpoint("get_team", Some(&org_id));
                     log::debug!("Invalidated team cache for org {}", org_id);
+                }
+            });
+        }
+    }
+
+    /// Invalidate all repo-related cache entries for an organization.
+    ///
+    /// Called after repo-app mapping mutations to ensure subsequent reads
+    /// return fresh data (the repo list includes app_infos).
+    fn invalidate_repo_cache(&self, org_id: &str) {
+        if let Some(ref cache) = self.cache {
+            let cache = cache.clone();
+            let org_id = org_id.to_string();
+
+            // Fire-and-forget: don't block waiting for cache clear
+            tokio::task::spawn_blocking(move || {
+                if let Ok(guard) = cache.lock() {
+                    let _ = guard.delete_by_endpoint("list_repos", Some(&org_id));
+                    log::debug!("Invalidated repo cache for org {}", org_id);
                 }
             });
         }
@@ -1152,6 +1172,43 @@ impl<
             self.invalidate_app_cache(org_id);
         }
         Ok(())
+    }
+}
+
+// ============================================================================
+// RepoApi Implementation (Repository write operations)
+// ============================================================================
+
+#[async_trait]
+impl<
+    C: AuthApi
+        + ListingApi
+        + ScanDetailApi
+        + TeamApi
+        + PerchApi
+        + ConfigApi
+        + EnvironmentApi
+        + OASApi
+        + AppApi
+        + RepoApi
+        + 'static,
+> RepoApi for CachedStackHawkClient<C>
+{
+    /// Get repo - delegates to inner (not independently cached; repos come
+    /// from list_repos which IS cached)
+    async fn get_repo(&self, org_id: &str, repo_id: &str) -> Result<Repository> {
+        self.inner.get_repo(org_id, repo_id).await
+    }
+
+    /// Replace repo app mappings - invalidates repo list cache after mutation
+    async fn replace_repo_app_mappings(
+        &self,
+        request: ReplaceRepoAppMappingsRequest,
+    ) -> Result<ReplaceRepoAppMappingsResponse> {
+        let org_id = request.org_id.clone();
+        let result = self.inner.replace_repo_app_mappings(request).await?;
+        self.invalidate_repo_cache(&org_id);
+        Ok(result)
     }
 }
 

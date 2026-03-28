@@ -233,7 +233,7 @@ pub enum AppCommands {
             hawkop app create --name my-api --env Development\n  \
             hawkop app create --name my-api --env prod --type cloud --host https://api.example.com\n  \
             hawkop app create --name my-api --env dev --team-id <uuid>\n  \
-            hawkop app create --name my-api -o json | jq '.data.applicationId'\n\n\
+            hawkop app create --name my-api --format json | jq '.data.applicationId'\n\n\
         OUTPUT:\n  \
             Table/pretty: prints application ID to stdout (pipeable).\n  \
             JSON: prints full application object wrapped in {data, meta}.")]
@@ -266,6 +266,51 @@ pub enum AppCommands {
         #[arg(long, short = 'N')]
         dry_run: bool,
     },
+
+    /// Get application details by ID or name
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app get <app-id>\n  \
+            hawkop app get --name my-api\n  \
+            hawkop app get <app-id> --format json | jq '.data'")]
+    Get {
+        /// Application ID (UUID)
+        #[arg(group = "app_selector")]
+        app_id: Option<String>,
+
+        /// Application name (resolved via API)
+        #[arg(long, short = 'n', group = "app_selector")]
+        name: Option<String>,
+    },
+
+    /// Rename an existing application
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app update <app-id> --name new-name\n  \
+            hawkop app update <app-id> --name new-name --dry-run")]
+    Update {
+        /// Application ID (UUID)
+        app_id: String,
+
+        /// New application name
+        #[arg(long, short = 'n')]
+        name: String,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
+
+    /// Delete an application (destructive)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app delete <app-id>\n  \
+            hawkop app delete <app-id> --yes")]
+    Delete {
+        /// Application ID (UUID)
+        app_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 }
 
 /// Scan management subcommands
@@ -290,7 +335,7 @@ pub enum ScanCommands {
             hawkop scan get abc123                   # Specific scan\n  \
             hawkop scan get abc123 --plugin-id 40012 # Plugin detail\n  \
             hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message\n  \
-            hawkop scan get --detail full -o json    # Full detail for AI agents\n  \
+            hawkop scan get --detail full --format json    # Full detail for AI agents\n  \
             hawkop scan get --app myapp --detail full --max-findings 10\n\n\
         DETAIL LEVELS:\n  \
             (default)  Overview with alerts table\n  \
@@ -684,6 +729,62 @@ pub enum RepoCommands {
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+    },
+
+    /// Link an application to a repository (additive, preserves existing mappings)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop repo link --repo-id <uuid> --app-id <uuid>         # Link existing app\n  \
+            hawkop repo link --repo-id <uuid> --app-name \"my-api\"     # Create new app + link\n  \
+            hawkop repo link --repo <name> --app-id <uuid>            # Find repo by name\n\n\
+        The API replaces all app mappings for a repo, so this command reads\n\
+        existing mappings first, merges in the new app, then writes the full list.")]
+    Link {
+        /// Repository ID (UUID)
+        #[arg(long, group = "repo_selector")]
+        repo_id: Option<String>,
+
+        /// Repository name (resolved via API)
+        #[arg(long = "repo", group = "repo_selector")]
+        repo_name: Option<String>,
+
+        /// Existing application ID to link
+        #[arg(long, group = "app_selector")]
+        app_id: Option<String>,
+
+        /// New application name (creates app + links)
+        #[arg(long, group = "app_selector")]
+        app_name: Option<String>,
+
+        /// Environment for new app (only with --app-name)
+        #[arg(long, short = 'e', default_value = "Development")]
+        env: String,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
+
+    /// Replace all application mappings for a repository (full replacement)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop repo set-apps --repo-id <uuid> --app-ids <id1>,<id2> --yes\n\n\
+        WARNING: This replaces ALL app mappings. Existing mappings not in the\n\
+        list will be removed. Use 'repo link' for additive operations.")]
+    SetApps {
+        /// Repository ID (UUID)
+        #[arg(long)]
+        repo_id: String,
+
+        /// Comma-separated application IDs
+        #[arg(long, value_delimiter = ',')]
+        app_ids: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
     },
 }
 

@@ -232,12 +232,15 @@ fn test_scan_get_with_app_filter() {
                         .output()
                         .expect("Failed to run scan get");
 
-                    // Either success or "no scans found" is acceptable
+                    // Either success, "no scans found", or "Multiple applications match"
+                    // (ambiguous name) is acceptable
                     if !result.status.success() {
                         let stderr = String::from_utf8_lossy(&result.stderr);
                         assert!(
-                            stderr.contains("No scans found") || stderr.contains("not found"),
-                            "Expected 'no scans' for app filter, got: {}",
+                            stderr.contains("No scans found")
+                                || stderr.contains("not found")
+                                || stderr.contains("Multiple applications match"),
+                            "Expected 'no scans' or 'ambiguous match' for app filter, got: {}",
                             stderr
                         );
                     }

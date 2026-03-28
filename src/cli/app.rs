@@ -220,6 +220,184 @@ pub async fn create(
     Ok(())
 }
 
+/// Run the app get command
+pub async fn get(opts: &GlobalOptions, app_id: Option<&str>, name: Option<&str>) -> Result<()> {
+    use crate::cli::CommandContext;
+    use crate::models::AppDetailDisplay;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    let app = match (app_id, name) {
+        (Some(id), None) => ctx.client.get_app(id).await?,
+        (None, Some(name)) => {
+            let org_id = ctx.require_org_id()?;
+            let apps = ctx.client.list_apps(org_id, None).await?;
+            let matches: Vec<_> = apps
+                .into_iter()
+                .filter(|a| a.name.eq_ignore_ascii_case(name))
+                .collect();
+
+            match matches.len() {
+                0 => {
+                    return Err(crate::error::Error::Other(format!(
+                        "No application found matching \"{}\".\n→ hawkop app list",
+                        name
+                    )));
+                }
+                1 => matches.into_iter().next().unwrap(),
+                n => {
+                    return Err(crate::error::Error::Other(format!(
+                        "Ambiguous: {} applications match \"{}\". Use app ID instead.\n→ hawkop app list -o json | jq '.data[] | select(.name==\"{}\") | .id'",
+                        n, name, name
+                    )));
+                }
+            }
+        }
+        _ => {
+            return Err(crate::error::Error::Other(
+                "Specify an app ID or --name.\n\
+                 → hawkop app get <app-id>\n\
+                 → hawkop app get --name my-api"
+                    .to_string(),
+            ));
+        }
+    };
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": app,
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            let display = AppDetailDisplay::from(&app);
+            vec![display].print(ctx.format)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the app update command
+pub async fn update(opts: &GlobalOptions, app_id: &str, name: &str, dry_run: bool) -> Result<()> {
+    use crate::cli::CommandContext;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Application name cannot be empty.".to_string(),
+        ));
+    }
+
+    if dry_run {
+        // Fetch current app for display
+        let current = ctx.client.get_app(app_id).await?;
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!("Would rename application:");
+        eprintln!("  ID: {}", app_id);
+        eprintln!("  Current name: \"{}\"", current.name);
+        eprintln!("  New name: \"{}\"", name.bold());
+        return Ok(());
+    }
+
+    debug!("Updating application {}: name -> \"{}\"", app_id, name);
+
+    let app = ctx.client.update_app(app_id, name).await?;
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": app,
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            eprintln!(
+                "{} Application renamed to \"{}\" (ID: {})",
+                "✓".green(),
+                app.name,
+                app.id
+            );
+            eprintln!();
+            eprintln!("→ hawkop app get {}", app.id);
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the app delete command
+pub async fn delete(opts: &GlobalOptions, app_id: &str, yes: bool) -> Result<()> {
+    use crate::cli::CommandContext;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    // Fetch app details for confirmation display
+    let app = ctx.client.get_app(app_id).await?;
+
+    if !yes {
+        eprintln!(
+            "{} This will permanently delete application \"{}\" (ID: {}).",
+            "⚠".yellow(),
+            app.name.bold(),
+            app_id
+        );
+        eprintln!("  All environments and scan results will be removed.");
+
+        use dialoguer::Confirm;
+        let confirmed = Confirm::new()
+            .with_prompt("Continue?")
+            .default(false)
+            .interact()?;
+
+        if !confirmed {
+            eprintln!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    debug!("Deleting application: {} ({})", app.name, app_id);
+
+    ctx.client.delete_app(app_id).await?;
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": { "deleted": true, "applicationId": app_id },
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            eprintln!(
+                "{} Deleted application \"{}\" (ID: {})",
+                "✓".green(),
+                app.name,
+                app_id
+            );
+            eprintln!();
+            eprintln!("→ hawkop app list");
+        }
+    }
+
+    Ok(())
+}
+
 /// Filter applications by type (cloud or standard)
 fn filter_by_type(apps: Vec<Application>, app_type: Option<&str>) -> Vec<Application> {
     match app_type {

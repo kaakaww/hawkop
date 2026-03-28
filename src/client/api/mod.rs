@@ -4,6 +4,7 @@
 //! - [`AppApi`] - Application CRUD operations
 //! - [`AuthApi`] - Authentication operations
 //! - [`ListingApi`] - Collection listing operations
+//! - [`RepoApi`] - Repository write operations (app mappings)
 //! - [`ScanDetailApi`] - Scan drill-down operations
 //! - [`TeamApi`] - Team CRUD operations
 //! - [`PerchApi`] - Hosted scan control operations
@@ -18,6 +19,7 @@ mod env;
 mod listing;
 mod oas;
 mod perch;
+mod repo;
 mod scan_detail;
 mod team;
 
@@ -28,5 +30,6 @@ pub use env::EnvironmentApi;
 pub use listing::ListingApi;
 pub use oas::OASApi;
 pub use perch::PerchApi;
+pub use repo::RepoApi;
 pub use scan_detail::ScanDetailApi;
 pub use team::TeamApi;
