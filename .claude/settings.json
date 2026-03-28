@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hooks/cli-change-guard.sh",
+            "timeout": 5,
+            "statusMessage": "Checking CLI design practices..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hooks/stop-quality-reminder.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hooks/session-freshness-check.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hooks/feature-workflow-reminder.sh",
+            "timeout": 5,
+            "statusMessage": "Checking workflow..."
+          }
+        ]
+      }
+    ]
+  }
+}
