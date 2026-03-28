@@ -2,7 +2,9 @@
 
 use async_trait::async_trait;
 
-use crate::client::models::{AlertMsgResponse, AlertResponse, ApplicationAlert, ScanResult};
+use crate::client::models::{
+    AlertMsgResponse, AlertResponse, ApplicationAlert, CurrentFindingsResponse, ScanResult,
+};
 use crate::client::pagination::PaginationParams;
 use crate::error::Result;
 
@@ -46,4 +48,18 @@ pub trait ScanDetailApi: Send + Sync {
         message_id: &str,
         include_curl: bool,
     ) -> Result<AlertMsgResponse>;
+
+    /// List organization findings from the reports endpoint
+    ///
+    /// Returns enriched finding data including remediation advice, first/last seen
+    /// timestamps, and stable finding hashes. Supports filtering by app IDs.
+    ///
+    /// Used by `scan get --detail full` for enrichment and future `findings list` command.
+    async fn list_org_findings(
+        &self,
+        org_id: &str,
+        app_ids: &[String],
+        page_size: Option<usize>,
+        page_token: Option<usize>,
+    ) -> Result<CurrentFindingsResponse>;
 }

@@ -220,14 +220,28 @@ Get a single application by ID.
 | API call | `GET /api/v1/app/{appId}` |
 | Roadmap | Phase 1 |
 
-#### `app create` [planned]
+#### `app create`
 
-Create a new application.
+Create a new application in the current organization.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--name` | `-n` | `String` | **Required** | Application name |
+| `--env` | `-e` | `String` | `Development` | Initial environment name |
+| `--type` | `-t` | `String` | `standard` | Application type: `standard` or `cloud` |
+| `--host` | | `String` | | Application host URL |
+| `--cloud-url` | | `String` | | Cloud scan target URL (required for cloud type) |
+| `--team-id` | | `String` | | Team ID to assign the application to |
+| `--dry-run` | `-N` | `bool` | | Preview without creating |
 
 | Component | Value |
 |-----------|-------|
+| Source | `src/cli/app.rs` |
 | API call | `POST /api/v1/org/{orgId}/app` |
-| Roadmap | Phase 1 |
+
+**Output:**
+- **Pretty/table**: prints application ID to stdout (pipeable), confirmation to stderr
+- **JSON**: full application object wrapped in `{data, meta}`
 
 #### `app update` [planned]
 
@@ -315,17 +329,36 @@ Get scan details with optional drill-down.
 | `--app` | `-a` | `String` | (none) | Filter by app name (only with "latest") |
 | `--app-id` | | `String` | (none) | Filter by app ID (only with "latest") |
 | `--env` | `-e` | `String` | (none) | Filter by environment (only with "latest") |
+| `--detail` | `-d` | `String` | (none) | Detail level: `full` for AI-optimized output |
+| `--max-findings` | | `usize` | `100` | Max findings to include (sorted by severity) |
+| `--max-body-size` | | `usize` | `10240` | Max response body bytes before truncation |
 | `--plugin-id` | `-p` | `String` | (none) | Show detail for specific plugin/vuln type |
 | `--uri-id` | `-u` | `String` | (none) | Show detail for specific URI/finding |
 | `--message` | `-m` | `bool` | `false` | Include HTTP message (requires `--uri-id`) |
 | `--format` | `-o` | `pretty\|table\|json` | `pretty` | Output format (overrides global) |
 
+**Detail levels:**
+
+| Level | Description |
+|-------|-------------|
+| (default) | Overview with alerts table |
+| `full` | Complete findings with HTTP messages, evidence, remediation advice, and validation commands. Outputs a self-contained JSON document (schema v1.0) suitable for AI agent consumption. |
+
+**`--detail full` output schema** (v1.0):
+
+The output is a single JSON document with sections: `scan` (metadata), `summary` (aggregate counts), `findings[]` (each with `paths[]` containing evidence, HTTP messages, and remediation advice), and `meta` (generation stats). Key fields for AI agents:
+- `findings[].remediation_advice` — actionable fix guidance
+- `findings[].paths[].validation_command` — curl command to reproduce
+- `findings[].paths[].finding_hash` — stable cross-scan identifier
+- `findings[].paths[].evidence` + `param` — what was vulnerable and where
+- `findings[].paths[].request`/`response` — inline HTTP details
+
 | Component | Value |
 |-----------|-------|
-| Conflicts | `--app` conflicts with `--app-id` |
+| Conflicts | `--app` conflicts with `--app-id`; `--detail full` ignores `--plugin-id`, `--uri-id`, `-m` |
 | Requires | `--message` requires `--uri-id` |
 | Dynamic completions | scan_id, app_name, plugin_id, uri_id |
-| API calls | `GET /api/v1/scan/{scanId}`, `GET /api/v1/scan/{scanId}/alerts`, `GET /api/v1/scan/{scanId}/alert/{pluginId}`, `GET /api/v1/scan/{scanId}/uri/{alertUriId}/messages/{messageId}` |
+| API calls | `GET /api/v1/scan/{scanId}/alerts`, `GET /api/v1/scan/{scanId}/alert/{pluginId}` (per plugin), `GET /api/v1/scan/{scanId}/uri/{alertUriId}/messages/{messageId}` (per path), `GET /api/v1/reports/org/{orgId}/findings` (enrichment) |
 | Handler | `src/cli/scan.rs` |
 
 #### `scan delete` [planned]

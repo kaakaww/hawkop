@@ -10,14 +10,15 @@ use std::time::Duration;
 
 use crate::cache::{CacheStorage, CacheTtl, cache_key};
 use crate::client::api::{
-    AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi, TeamApi,
+    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi,
+    TeamApi,
 };
 use crate::client::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    ConfigType, CreateTeamRequest, Environment, JwtToken, OASAsset, OrgPolicy, Organization,
-    PerchCommandResponse, PerchDevice, Repository, ScanConfig, ScanResult, Secret, StackHawkPolicy,
-    Team, TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest, User,
-    ValidatedAssetResponse,
+    ConfigType, CreateApplicationRequest, CreateTeamRequest, CurrentFindingsResponse, Environment,
+    JwtToken, OASAsset, OrgPolicy, Organization, PerchCommandResponse, PerchDevice, Repository,
+    ScanConfig, ScanResult, Secret, StackHawkPolicy, Team, TeamDetail,
+    UpdateApplicationTeamRequest, UpdateTeamRequest, User, ValidatedAssetResponse,
 };
 use crate::client::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::Result;
@@ -128,6 +129,23 @@ impl<C: AuthApi + ListingApi + ScanDetailApi> CachedStackHawkClient<C> {
     ///
     /// Called after team mutations (create, update, delete, member changes)
     /// to ensure subsequent reads return fresh data.
+    fn invalidate_app_cache(&self, org_id: &str) {
+        if let Some(ref cache) = self.cache {
+            let cache = cache.clone();
+            let org_id = org_id.to_string();
+
+            // Fire-and-forget: don't block waiting for cache clear
+            tokio::task::spawn_blocking(move || {
+                if let Ok(guard) = cache.lock() {
+                    // Clear all app list caches (list_apps, list_apps_paged)
+                    let _ = guard.delete_by_endpoint("list_apps", Some(&org_id));
+                    let _ = guard.delete_by_endpoint("list_apps_paged", Some(&org_id));
+                    log::debug!("Invalidated app cache for org {}", org_id);
+                }
+            });
+        }
+    }
+
     fn invalidate_team_cache(&self, org_id: &str) {
         if let Some(ref cache) = self.cache {
             let cache = cache.clone();
@@ -787,6 +805,54 @@ impl<C: AuthApi + ListingApi + ScanDetailApi + 'static> ScanDetailApi for Cached
         );
         Ok(result)
     }
+
+    async fn list_org_findings(
+        &self,
+        org_id: &str,
+        app_ids: &[String],
+        page_size: Option<usize>,
+        page_token: Option<usize>,
+    ) -> Result<CurrentFindingsResponse> {
+        let mut params: Vec<(&str, &str)> = vec![("org_id", org_id)];
+        let app_ids_str = app_ids.join(",");
+        if !app_ids.is_empty() {
+            params.push(("app_ids", &app_ids_str));
+        }
+        let page_size_str = page_size.map(|s| s.to_string());
+        if let Some(ref s) = page_size_str {
+            params.push(("page_size", s));
+        }
+        let page_token_str = page_token.map(|t| t.to_string());
+        if let Some(ref t) = page_token_str {
+            params.push(("page_token", t));
+        }
+        let key = cache_key(
+            "list_org_findings",
+            self.api_host.as_deref(),
+            Some(org_id),
+            &params,
+        );
+
+        if let Some(cached) = self.get_cached(&key).await {
+            log::debug!("Cache hit: list_org_findings");
+            return Ok(cached);
+        }
+
+        let result = self
+            .inner
+            .list_org_findings(org_id, app_ids, page_size, page_token)
+            .await?;
+
+        // Findings report is relatively stable - cache for 10 min (same as alerts)
+        self.set_cached(
+            &key,
+            &result,
+            "list_org_findings",
+            Some(org_id),
+            CacheTtl::ALERTS,
+        );
+        Ok(result)
+    }
 }
 
 // ============================================================================
@@ -1027,6 +1093,65 @@ impl<
     /// Get OAS mappings for an app - not cached (mappings can change)
     async fn get_oas_mappings(&self, app_id: &str) -> Result<Vec<OASAsset>> {
         self.inner.get_oas_mappings(app_id).await
+    }
+}
+
+// ============================================================================
+// AppApi Implementation (Application CRUD)
+// ============================================================================
+
+#[async_trait]
+impl<
+    C: AuthApi
+        + ListingApi
+        + ScanDetailApi
+        + TeamApi
+        + PerchApi
+        + ConfigApi
+        + EnvironmentApi
+        + OASApi
+        + AppApi
+        + 'static,
+> AppApi for CachedStackHawkClient<C>
+{
+    /// Get application - not cached (apps can change, and this is typically
+    /// used before mutations where freshness matters)
+    async fn get_app(&self, app_id: &str) -> Result<Application> {
+        self.inner.get_app(app_id).await
+    }
+
+    /// Create application - invalidates app list cache after creation
+    async fn create_app(
+        &self,
+        org_id: &str,
+        request: CreateApplicationRequest,
+    ) -> Result<Application> {
+        let result = self.inner.create_app(org_id, request).await?;
+        self.invalidate_app_cache(org_id);
+        Ok(result)
+    }
+
+    /// Update application - invalidates app list cache after update
+    async fn update_app(&self, app_id: &str, name: &str) -> Result<Application> {
+        let result = self.inner.update_app(app_id, name).await?;
+        // We don't have the org_id here, but the app's org will be in the result
+        if let Some(ref org_id) = result.organization_id {
+            self.invalidate_app_cache(org_id);
+        }
+        Ok(result)
+    }
+
+    /// Delete application - invalidates app list cache after deletion
+    async fn delete_app(&self, app_id: &str) -> Result<()> {
+        // Get the app first to know which org's cache to invalidate
+        let app = self.inner.get_app(app_id).await.ok();
+        self.inner.delete_app(app_id).await?;
+        if let Some(app) = app
+            && let Some(ref org_id) = app.organization_id
+        {
+            self.invalidate_app_cache(org_id);
+        }
+        Ok(())
     }
 }
 

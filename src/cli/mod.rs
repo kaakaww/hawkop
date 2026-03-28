@@ -227,6 +227,45 @@ pub enum AppCommands {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
+
+    /// Create a new application in the current organization
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app create --name my-api --env Development\n  \
+            hawkop app create --name my-api --env prod --type cloud --host https://api.example.com\n  \
+            hawkop app create --name my-api --env dev --team-id <uuid>\n  \
+            hawkop app create --name my-api -o json | jq '.data.applicationId'\n\n\
+        OUTPUT:\n  \
+            Table/pretty: prints application ID to stdout (pipeable).\n  \
+            JSON: prints full application object wrapped in {data, meta}.")]
+    Create {
+        /// Application name (required)
+        #[arg(long, short = 'n')]
+        name: String,
+
+        /// Initial environment name
+        #[arg(long, short = 'e', default_value = "Development")]
+        env: String,
+
+        /// Application type: standard (default) or cloud
+        #[arg(long = "type", short = 't', default_value = "standard")]
+        app_type: String,
+
+        /// Application host URL (e.g., http://localhost:8080)
+        #[arg(long)]
+        host: Option<String>,
+
+        /// Cloud scan target URL (required for cloud type apps)
+        #[arg(long = "cloud-url")]
+        cloud_scan_target_url: Option<String>,
+
+        /// Team ID to assign the new application to
+        #[arg(long)]
+        team_id: Option<String>,
+
+        /// Preview without creating
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
 }
 
 /// Scan management subcommands
@@ -250,7 +289,14 @@ pub enum ScanCommands {
             hawkop scan get --app-id <uuid>          # Latest for app (by ID)\n  \
             hawkop scan get abc123                   # Specific scan\n  \
             hawkop scan get abc123 --plugin-id 40012 # Plugin detail\n  \
-            hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message"
+            hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message\n  \
+            hawkop scan get --detail full -o json    # Full detail for AI agents\n  \
+            hawkop scan get --app myapp --detail full --max-findings 10\n\n\
+        DETAIL LEVELS:\n  \
+            (default)  Overview with alerts table\n  \
+            full       Complete findings with HTTP messages, evidence,\n  \
+                       remediation advice, and validation commands.\n  \
+                       Best with --format json for AI agent consumption."
     )]
     Get {
         /// Scan ID (UUID) or "latest" - defaults to latest if omitted
@@ -268,6 +314,18 @@ pub enum ScanCommands {
         /// Filter by environment (only with "latest")
         #[arg(long, short = 'e')]
         env: Option<String>,
+
+        /// Detail level: "full" fetches all findings with HTTP messages and remediation
+        #[arg(long, short = 'd')]
+        detail: Option<String>,
+
+        /// Maximum number of findings to include (sorted by severity, highest first)
+        #[arg(long, default_value = "100")]
+        max_findings: usize,
+
+        /// Maximum response body size in bytes before truncation (default: 10KB)
+        #[arg(long, default_value = "10240")]
+        max_body_size: usize,
 
         /// Show detail for specific plugin/vulnerability type
         #[arg(long = "plugin-id", short = 'p', add = plugin_id_candidates())]

@@ -83,6 +83,27 @@ async fn run() -> Result<()> {
                 app_type,
                 pagination,
             } => cli::app::list(&opts, app_type.as_deref(), &pagination).await,
+            AppCommands::Create {
+                name,
+                env,
+                app_type,
+                host,
+                cloud_scan_target_url,
+                team_id,
+                dry_run,
+            } => {
+                cli::app::create(
+                    &opts,
+                    &name,
+                    &env,
+                    &app_type,
+                    host.as_deref(),
+                    cloud_scan_target_url.as_deref(),
+                    team_id.as_deref(),
+                    dry_run,
+                )
+                .await
+            }
         },
         Commands::Scan(scan_cmd) => match scan_cmd {
             ScanCommands::List {
@@ -94,6 +115,9 @@ async fn run() -> Result<()> {
                 app,
                 app_id,
                 env,
+                detail,
+                max_findings,
+                max_body_size,
                 plugin_id,
                 uri_id,
                 message,
@@ -107,6 +131,9 @@ async fn run() -> Result<()> {
                     app.as_deref(),
                     app_id.as_deref(),
                     env.as_deref(),
+                    detail.as_deref(),
+                    max_findings,
+                    max_body_size,
                     plugin_id.as_deref(),
                     uri_id.as_deref(),
                     message,

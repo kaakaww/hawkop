@@ -80,6 +80,18 @@ pub struct ApplicationAlertUri {
         deserialize_with = "deserialize_optional_i64_or_string"
     )]
     pub matched_rule_last_updated: Option<i64>,
+
+    /// Stable SHA-256 hash identifying this finding across scans
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_hash: Option<String>,
+
+    /// User ID of who last triaged this finding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_rule_user_id: Option<String>,
+
+    /// Link to external issue tracker (e.g., Jira, GitHub)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_link: Option<String>,
 }
 
 /// Alert response containing alert details and affected paths
@@ -180,6 +192,10 @@ pub struct AlertMsgResponse {
     /// Curl command to reproduce the finding
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation_command: Option<String>,
+
+    /// Stable SHA-256 hash identifying this finding across scans
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_hash: Option<String>,
 }
 
 /// Wrapper for scan alerts list response
@@ -246,6 +262,120 @@ pub struct ScanResultWithAlerts {
     /// Scan metadata with extended context (userId, policyName, etc.)
     #[serde(default)]
     pub metadata: Option<ScanMetadata>,
+}
+
+/// Row from the organization findings report
+///
+/// Used by `scan get --detail full` for enrichment and by `findings list` command.
+///
+/// Returned by `GET /api/v1/reports/org/{orgId}/findings`. Contains enriched
+/// finding data including remediation advice, first/last seen dates, and
+/// stable finding hashes for cross-scan identification.
+#[allow(dead_code)] // Used in Sprint 2: scan get --detail full
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentFindingRow {
+    /// Stable SHA-256 hash identifying this finding across scans
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_hash: Option<String>,
+
+    /// Plugin ID that detected this finding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_plugin_id: Option<String>,
+
+    /// Plugin/vulnerability name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_plugin_name: Option<String>,
+
+    /// Severity level: "High", "Medium", "Low"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_risk: Option<String>,
+
+    /// Affected URL path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_url: Option<String>,
+
+    /// HTTP method
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_method: Option<String>,
+
+    /// Vulnerability description
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_description: Option<String>,
+
+    /// Evidence found
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_evidence: Option<String>,
+
+    /// Additional context
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_other_info: Option<String>,
+
+    /// ISO 8601 timestamp of when this finding was first detected
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "findingFirstSeenISO8601"
+    )]
+    pub finding_first_seen_iso8601: Option<String>,
+
+    /// ISO 8601 timestamp of when this finding was last detected
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "findingLastSeenISO8601"
+    )]
+    pub finding_last_seen_iso8601: Option<String>,
+
+    /// Remediation advice for fixing this vulnerability
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation_advice: Option<String>,
+
+    /// Triage status
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+
+    /// Application ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
+
+    /// Application name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_name: Option<String>,
+
+    /// Environment name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_name: Option<String>,
+
+    /// CWE identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwe_id: Option<String>,
+
+    /// Scan ID where this finding was last seen
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_id: Option<String>,
+}
+
+/// Response wrapper for the organization findings report
+#[allow(dead_code)] // Used in Sprint 2: scan get --detail full
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentFindingsResponse {
+    /// List of finding rows
+    #[serde(default)]
+    pub findings: Vec<CurrentFindingRow>,
+
+    /// Total number of findings matching the query
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_i64_or_string"
+    )]
+    pub total_findings: Option<i64>,
+
+    /// Next page token for pagination
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
 }
 
 /// Custom deserializer for fields that may be int or string (u32)

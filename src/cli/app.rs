@@ -1,11 +1,13 @@
 //! Application management commands
 
+use colored::Colorize;
 use log::debug;
 
+use crate::cli::OutputFormat;
 use crate::cli::args::GlobalOptions;
 use crate::cli::{CommandContext, PaginationArgs};
-use crate::client::models::Application;
-use crate::client::{ListingApi, PaginationParams, fetch_remaining_pages};
+use crate::client::models::{Application, CreateApplicationRequest};
+use crate::client::{AppApi, ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
 use crate::models::AppDisplay;
 use crate::output::Formattable;
@@ -104,6 +106,120 @@ pub async fn list(
     Ok(())
 }
 
+/// Run the app create command
+#[allow(clippy::too_many_arguments)]
+pub async fn create(
+    opts: &GlobalOptions,
+    name: &str,
+    env: &str,
+    app_type: &str,
+    host: Option<&str>,
+    cloud_scan_target_url: Option<&str>,
+    team_id: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    let ctx = CommandContext::new(opts).await?;
+    let org_id = ctx.require_org_id()?;
+
+    // Validate name
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Application name cannot be empty.".to_string(),
+        ));
+    }
+
+    // Normalize and validate type
+    let app_type_upper = app_type.to_uppercase();
+    if app_type_upper != "STANDARD" && app_type_upper != "CLOUD" {
+        return Err(crate::error::Error::Other(format!(
+            "Invalid application type: \"{}\". Must be \"standard\" or \"cloud\".",
+            app_type
+        )));
+    }
+
+    // Cloud apps require a cloud-url
+    if app_type_upper == "CLOUD" && cloud_scan_target_url.is_none() {
+        return Err(crate::error::Error::Other(
+            "Cloud applications require --cloud-url <URL>.\n\
+             → Example: hawkop app create --name my-api --type cloud --cloud-url https://api.example.com"
+                .to_string(),
+        ));
+    }
+
+    // Validate env
+    let env = env.trim();
+    if env.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Environment name cannot be empty.".to_string(),
+        ));
+    }
+
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!("Would create application:");
+        eprintln!("  Name: {}", name.bold());
+        eprintln!("  Environment: {}", env);
+        eprintln!("  Type: {}", app_type_upper);
+        if let Some(h) = host {
+            eprintln!("  Host: {}", h);
+        }
+        if let Some(url) = cloud_scan_target_url {
+            eprintln!("  Cloud URL: {}", url);
+        }
+        if let Some(tid) = team_id {
+            eprintln!("  Team: {}", tid);
+        }
+        return Ok(());
+    }
+
+    let request = CreateApplicationRequest {
+        name: name.to_string(),
+        env: env.to_string(),
+        application_type: Some(app_type_upper),
+        host: host.map(|h| h.to_string()),
+        cloud_scan_target_url: cloud_scan_target_url.map(|u| u.to_string()),
+        team_id: team_id.map(|t| t.to_string()),
+    };
+
+    debug!("Creating application: {:?}", request);
+
+    let app = ctx.client.create_app(org_id, request).await?;
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": app,
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            // stdout: just the app ID (pipeable)
+            println!("{}", app.id);
+            // stderr: human-friendly confirmation + next steps
+            eprintln!(
+                "{} Application \"{}\" created (ID: {})",
+                "✓".green(),
+                app.name,
+                app.id
+            );
+            if let Some(ref env_name) = app.env {
+                eprintln!("  Environment: {}", env_name);
+            }
+            eprintln!();
+            eprintln!("→ hawkop app list");
+            eprintln!("→ hawkop repo link --repo-id <uuid> --app-id {}", app.id);
+        }
+    }
+
+    Ok(())
+}
+
 /// Filter applications by type (cloud or standard)
 fn filter_by_type(apps: Vec<Application>, app_type: Option<&str>) -> Vec<Application> {
     match app_type {
@@ -143,6 +259,7 @@ mod tests {
             organization_id: Some("org-123".to_string()),
             application_type: app_type.map(|t| t.to_string()),
             cloud_scan_target: None,
+            env_id: None,
         }
     }
 

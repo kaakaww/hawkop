@@ -5,8 +5,9 @@
 
 pub mod display;
 
+#[allow(unused_imports)] // AppDetailDisplay used in Sprint 3: app get/update
 pub use display::{
-    AlertDetail, AlertFindingDisplay, AlertMessageDetail, AppDisplay, AuditDisplay, ConfigDisplay,
-    EnvDisplay, OASDisplay, OrgDisplay, PolicyDisplay, PrettyAlertDisplay, RepoDisplay,
-    ScanDisplay, SecretDisplay, TeamListDisplay, UserDisplay,
+    AlertDetail, AlertFindingDisplay, AlertMessageDetail, AppDetailDisplay, AppDisplay,
+    AuditDisplay, ConfigDisplay, EnvDisplay, OASDisplay, OrgDisplay, PolicyDisplay,
+    PrettyAlertDisplay, RepoDisplay, ScanDisplay, SecretDisplay, TeamListDisplay, UserDisplay,
 };
