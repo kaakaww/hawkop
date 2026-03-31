@@ -232,11 +232,13 @@ pub enum AppCommands {
     #[command(after_help = "EXAMPLES:\n  \
             hawkop app create --name my-api --env Development\n  \
             hawkop app create --name my-api --env prod --type cloud --host https://api.example.com\n  \
-            hawkop app create --name my-api --env dev --team-id <uuid>\n  \
+            hawkop app create --name my-api --env dev --repo kaakaww/my-api\n  \
+            hawkop app create --name my-api --env dev --repo-id <uuid>\n  \
             hawkop app create --name my-api --format json | jq '.data.applicationId'\n\n\
         OUTPUT:\n  \
             Table/pretty: prints application ID to stdout (pipeable).\n  \
-            JSON: prints full application object wrapped in {data, meta}.")]
+            JSON: prints full application object wrapped in {data, meta}.\n  \
+            If --repo/--repo-id is provided, links the app to the repo after creation.")]
     Create {
         /// Application name (required)
         #[arg(long, short = 'n')]
@@ -261,6 +263,14 @@ pub enum AppCommands {
         /// Team ID to assign the new application to
         #[arg(long)]
         team_id: Option<String>,
+
+        /// Link to a repository by name (e.g., kaakaww/my-api)
+        #[arg(long, conflicts_with = "create_repo_id")]
+        repo: Option<String>,
+
+        /// Link to a repository by ID (UUID)
+        #[arg(long = "repo-id", id = "create_repo_id")]
+        repo_id: Option<String>,
 
         /// Preview without creating
         #[arg(long, short = 'N')]

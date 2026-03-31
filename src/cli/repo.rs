@@ -313,7 +313,7 @@ pub async fn set_apps(
 ///
 /// When using `--repo <name>`, fetches the repo list and finds a match.
 /// Errors if both or neither selector is provided.
-async fn resolve_repo(
+pub(crate) async fn resolve_repo(
     client: &(impl ListingApi + RepoApi),
     org_id: &str,
     repo_id: Option<&str>,
@@ -347,4 +347,81 @@ async fn resolve_repo(
                 .to_string(),
         )),
     }
+}
+
+/// Result of linking an app to a repo.
+#[derive(Debug)]
+pub(crate) enum LinkResult {
+    /// Successfully linked the app to the repo.
+    Linked {
+        repo_id: String,
+        repo_name: String,
+        total_mappings: usize,
+    },
+    /// The app was already linked to the repo.
+    AlreadyLinked { repo_id: String, app_id: String },
+}
+
+/// Link an application to a repository using read-merge-write.
+///
+/// This is the shared core logic used by both `repo link` and `app create --repo`.
+/// It reads existing mappings, merges the new app, and POSTs the complete list.
+pub(crate) async fn link_app_to_repo(
+    client: &(impl ListingApi + RepoApi),
+    org_id: &str,
+    repo: &Repository,
+    app_id: &str,
+) -> Result<LinkResult> {
+    let repo_id = repo.id.clone().ok_or_else(|| {
+        crate::error::Error::Other("Repository has no ID (unexpected API response).".to_string())
+    })?;
+
+    // Read existing mappings
+    let existing_apps: Vec<RepoAppInfoWrite> = repo
+        .app_infos
+        .iter()
+        .map(|ai| RepoAppInfoWrite {
+            id: ai.app_id.clone(),
+            name: ai.app_name.clone(),
+        })
+        .collect();
+
+    // Check if already linked
+    if existing_apps
+        .iter()
+        .any(|a| a.id.as_deref() == Some(app_id))
+    {
+        return Ok(LinkResult::AlreadyLinked {
+            repo_id,
+            app_id: app_id.to_string(),
+        });
+    }
+
+    // Merge: existing + new
+    let mut merged_apps = existing_apps;
+    merged_apps.push(RepoAppInfoWrite {
+        id: Some(app_id.to_string()),
+        name: None,
+    });
+
+    debug!(
+        "Linking app {} to repo {} (total mappings: {})",
+        app_id,
+        repo_id,
+        merged_apps.len()
+    );
+
+    let request = ReplaceRepoAppMappingsRequest {
+        org_id: org_id.to_string(),
+        repo_id: repo_id.clone(),
+        app_infos: merged_apps,
+    };
+
+    let response = client.replace_repo_app_mappings(request).await?;
+
+    Ok(LinkResult::Linked {
+        repo_id,
+        repo_name: repo.name.clone(),
+        total_mappings: response.app_infos.len(),
+    })
 }

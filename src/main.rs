@@ -9,6 +9,7 @@ mod cli;
 mod client;
 mod config;
 mod error;
+mod git;
 mod models;
 mod output;
 
@@ -90,6 +91,8 @@ async fn run() -> Result<()> {
                 host,
                 cloud_scan_target_url,
                 team_id,
+                repo,
+                repo_id,
                 dry_run,
             } => {
                 cli::app::create(
@@ -100,6 +103,8 @@ async fn run() -> Result<()> {
                     host.as_deref(),
                     cloud_scan_target_url.as_deref(),
                     team_id.as_deref(),
+                    repo.as_deref(),
+                    repo_id.as_deref(),
                     dry_run,
                 )
                 .await

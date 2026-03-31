@@ -9,6 +9,7 @@ use crate::cli::{CommandContext, PaginationArgs};
 use crate::client::models::{Application, CreateApplicationRequest};
 use crate::client::{AppApi, ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
+use crate::git;
 use crate::models::AppDisplay;
 use crate::output::Formattable;
 
@@ -116,6 +117,8 @@ pub async fn create(
     host: Option<&str>,
     cloud_scan_target_url: Option<&str>,
     team_id: Option<&str>,
+    repo_name: Option<&str>,
+    repo_id: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
     let ctx = CommandContext::new(opts).await?;
@@ -155,6 +158,8 @@ pub async fn create(
         ));
     }
 
+    let wants_repo_link = repo_name.is_some() || repo_id.is_some();
+
     if dry_run {
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
         eprintln!();
@@ -170,6 +175,12 @@ pub async fn create(
         }
         if let Some(tid) = team_id {
             eprintln!("  Team: {}", tid);
+        }
+        if let Some(rn) = repo_name {
+            eprintln!("  Link to repo: {} (by name)", rn);
+        }
+        if let Some(ri) = repo_id {
+            eprintln!("  Link to repo: {} (by ID)", ri);
         }
         return Ok(());
     }
@@ -187,14 +198,74 @@ pub async fn create(
 
     let app = ctx.client.create_app(org_id, request).await?;
 
+    // Attempt repo linking if requested (best-effort: app exists even if this fails)
+    let link_result = if wants_repo_link {
+        match try_link_repo(&*ctx.client, org_id, &app.id, repo_name, repo_id).await {
+            Ok(result) => Some(Ok(result)),
+            Err(e) => Some(Err(e)),
+        }
+    } else {
+        None
+    };
+
+    // Detect local git repo for smart nudge (Layer 1 — no API call, fast)
+    let detected_repo = if !wants_repo_link {
+        git::detect_local_repo()
+    } else {
+        None
+    };
+
     match ctx.format {
         OutputFormat::Json => {
-            let output = serde_json::json!({
-                "data": app,
-                "meta": {
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "timestamp": chrono::Utc::now().to_rfc3339()
+            let mut meta = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            if let Some(ref repo) = detected_repo {
+                meta["detected_repo"] = serde_json::json!({
+                    "provider": repo.provider.to_string(),
+                    "owner": &repo.owner,
+                    "name": &repo.name,
+                });
+            }
+
+            let repo_link_json = match &link_result {
+                Some(Ok(crate::cli::repo::LinkResult::Linked {
+                    repo_id,
+                    repo_name,
+                    total_mappings,
+                })) => serde_json::json!({
+                    "status": "linked",
+                    "repo_id": repo_id,
+                    "repo_name": repo_name,
+                    "total_mappings": total_mappings,
+                }),
+                Some(Ok(crate::cli::repo::LinkResult::AlreadyLinked { repo_id, app_id })) => {
+                    serde_json::json!({
+                        "status": "already_linked",
+                        "repo_id": repo_id,
+                        "app_id": app_id,
+                    })
                 }
+                Some(Err(e)) => serde_json::json!({
+                    "status": "failed",
+                    "error": e.to_string(),
+                }),
+                None => serde_json::Value::Null,
+            };
+
+            let data = if wants_repo_link {
+                serde_json::json!({
+                    "application": app,
+                    "repo_link": repo_link_json,
+                })
+            } else {
+                serde_json::to_value(&app)?
+            };
+
+            let output = serde_json::json!({
+                "data": data,
+                "meta": meta
             });
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
@@ -211,13 +282,66 @@ pub async fn create(
             if let Some(ref env_name) = app.env {
                 eprintln!("  Environment: {}", env_name);
             }
+
+            // Report repo link result
+            match &link_result {
+                Some(Ok(crate::cli::repo::LinkResult::Linked {
+                    repo_name, repo_id, ..
+                })) => {
+                    eprintln!(
+                        "{} Linked to repository \"{}\" ({})",
+                        "✓".green(),
+                        repo_name,
+                        repo_id
+                    );
+                }
+                Some(Ok(crate::cli::repo::LinkResult::AlreadyLinked { app_id, .. })) => {
+                    eprintln!(
+                        "{} App {} is already linked to this repository.",
+                        "ℹ".blue(),
+                        app_id
+                    );
+                }
+                Some(Err(e)) => {
+                    eprintln!();
+                    eprintln!("{} Could not link to repository: {}", "⚠".yellow(), e);
+                    eprintln!("→ hawkop repo link --app-id {} --repo <name>", app.id);
+                }
+                None => {}
+            }
+
             eprintln!();
+
+            // Smart nudge: suggest repo link if not already linking
+            if link_result.is_none() {
+                if let Some(ref repo) = detected_repo {
+                    eprintln!("💡 Detected git repo: {}", repo.full_name());
+                    eprintln!(
+                        "→ hawkop repo link --repo {} --app-id {}",
+                        repo.full_name(),
+                        app.id
+                    );
+                } else {
+                    eprintln!("→ hawkop repo link --repo-id <uuid> --app-id {}", app.id);
+                }
+            }
             eprintln!("→ hawkop app list");
-            eprintln!("→ hawkop repo link --repo-id <uuid> --app-id {}", app.id);
         }
     }
 
     Ok(())
+}
+
+/// Attempt to resolve and link a repo to an app. Used by `app create --repo`.
+async fn try_link_repo(
+    client: &(impl crate::client::ListingApi + crate::client::RepoApi),
+    org_id: &str,
+    app_id: &str,
+    repo_name: Option<&str>,
+    repo_id: Option<&str>,
+) -> Result<crate::cli::repo::LinkResult> {
+    let resolved = crate::cli::repo::resolve_repo(client, org_id, repo_id, repo_name).await?;
+    crate::cli::repo::link_app_to_repo(client, org_id, &resolved, app_id).await
 }
 
 /// Run the app get command
