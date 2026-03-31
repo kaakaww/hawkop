@@ -340,8 +340,13 @@ async fn try_link_repo(
     repo_name: Option<&str>,
     repo_id: Option<&str>,
 ) -> Result<crate::cli::repo::LinkResult> {
+    use crate::client::models::RepoAppInfoWrite;
     let resolved = crate::cli::repo::resolve_repo(client, org_id, repo_id, repo_name).await?;
-    crate::cli::repo::link_app_to_repo(client, org_id, &resolved, app_id).await
+    let app_info = RepoAppInfoWrite {
+        id: Some(app_id.to_string()),
+        name: None,
+    };
+    crate::cli::repo::link_app_to_repo(client, org_id, &resolved, &app_info).await
 }
 
 /// Run the app get command

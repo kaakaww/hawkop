@@ -4,8 +4,9 @@ use clap::{Parser, Subcommand};
 pub use clap_complete::Shell;
 
 use completions::{
-    app_name_candidates, plugin_id_candidates, scan_id_candidates, team_name_candidates,
-    uri_id_candidates, user_email_candidates,
+    app_id_candidates, app_name_candidates, plugin_id_candidates, repo_id_candidates,
+    repo_name_candidates, scan_id_candidates, team_name_candidates, uri_id_candidates,
+    user_email_candidates,
 };
 
 pub mod app;
@@ -265,11 +266,11 @@ pub enum AppCommands {
         team_id: Option<String>,
 
         /// Link to a repository by name (e.g., kaakaww/my-api)
-        #[arg(long, conflicts_with = "create_repo_id")]
+        #[arg(long, conflicts_with = "create_repo_id", add = repo_name_candidates())]
         repo: Option<String>,
 
         /// Link to a repository by ID (UUID)
-        #[arg(long = "repo-id", id = "create_repo_id")]
+        #[arg(long = "repo-id", id = "create_repo_id", add = repo_id_candidates())]
         repo_id: Option<String>,
 
         /// Preview without creating
@@ -284,11 +285,11 @@ pub enum AppCommands {
             hawkop app get <app-id> --format json | jq '.data'")]
     Get {
         /// Application ID (UUID)
-        #[arg(group = "app_selector")]
+        #[arg(group = "app_selector", add = app_id_candidates())]
         app_id: Option<String>,
 
         /// Application name (resolved via API)
-        #[arg(long, short = 'n', group = "app_selector")]
+        #[arg(long, short = 'n', group = "app_selector", add = app_name_candidates())]
         name: Option<String>,
     },
 
@@ -298,6 +299,7 @@ pub enum AppCommands {
             hawkop app update <app-id> --name new-name --dry-run")]
     Update {
         /// Application ID (UUID)
+        #[arg(add = app_id_candidates())]
         app_id: String,
 
         /// New application name
@@ -315,6 +317,7 @@ pub enum AppCommands {
             hawkop app delete <app-id> --yes")]
     Delete {
         /// Application ID (UUID)
+        #[arg(add = app_id_candidates())]
         app_id: String,
 
         /// Skip confirmation prompt
@@ -750,19 +753,19 @@ pub enum RepoCommands {
         existing mappings first, merges in the new app, then writes the full list.")]
     Link {
         /// Repository ID (UUID)
-        #[arg(long, group = "repo_selector")]
+        #[arg(long, group = "repo_selector", add = repo_id_candidates())]
         repo_id: Option<String>,
 
         /// Repository name (resolved via API)
-        #[arg(long = "repo", group = "repo_selector")]
+        #[arg(long = "repo", group = "repo_selector", add = repo_name_candidates())]
         repo_name: Option<String>,
 
         /// Existing application ID to link
-        #[arg(long, group = "app_selector")]
+        #[arg(long, group = "app_selector", add = app_id_candidates())]
         app_id: Option<String>,
 
         /// New application name (creates app + links)
-        #[arg(long, group = "app_selector")]
+        #[arg(long, group = "app_selector", add = app_name_candidates())]
         app_name: Option<String>,
 
         /// Environment for new app (only with --app-name)
@@ -781,11 +784,11 @@ pub enum RepoCommands {
         list will be removed. Use 'repo link' for additive operations.")]
     SetApps {
         /// Repository ID (UUID)
-        #[arg(long)]
+        #[arg(long, add = repo_id_candidates())]
         repo_id: String,
 
         /// Comma-separated application IDs
-        #[arg(long, value_delimiter = ',')]
+        #[arg(long, value_delimiter = ',', add = app_id_candidates())]
         app_ids: Vec<String>,
 
         /// Skip confirmation prompt

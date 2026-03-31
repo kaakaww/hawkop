@@ -34,6 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `make setup-hooks` to install, `make check-test-coverage` to audit test gaps
   - `/pre-commit` Claude Code command for intelligent checklist (docs, design review)
 - **Functional tests** for hosted scanning, environment, config, and OAS commands
+- **Application CRUD** - Full lifecycle management for applications
+  - `app create` - Create applications with `--name`, `--env`, `--type`, `--host`, `--team-id`
+  - `app create --repo` / `--repo-id` - Create and link to a repository in one step
+  - `app get` - Get application details by ID or `--name`
+  - `app update` - Rename an application
+  - `app delete` - Delete an application (with `--yes` to skip confirmation)
+- **AI-optimized scan output** - `scan get --detail full` produces a single self-contained JSON document with all findings, evidence, HTTP messages, and remediation advice for agentic workflows
+- **Repository linking** - Connect applications to repositories for API Discovery
+  - `repo link` - Additive link with read-merge-write (preserves existing mappings)
+  - `repo set-apps` - Full replacement of app mappings for a repository
+- **Git-aware app creation** - Detects local git repository and suggests `repo link` command when creating apps without `--repo`
+- **Enhanced init flow** - After setup, detects git repo, matches against platform, and offers to create app + link
+- **Git repo detection module** (`src/git/mod.rs`) - Reusable two-layer detection: local git parsing (SSH/HTTPS for GitHub, GitLab, Bitbucket, Azure DevOps) + platform API matching
+- **Dynamic shell completions** for app IDs, repo IDs, and repo names across all Sprint 3-4 commands
+
+### Fixed
+
+- **Functional test safety** - `HAWKOP_PROFILE` is now required to run functional tests, preventing accidental runs against the default (production) profile
+- **test_org_set_and_get_roundtrip** - Fixed broken org restore that silently left config pointing to wrong org (JSON path didn't account for `{data}` wrapper)
 
 ## [0.5.1] - 2026-01-23
 

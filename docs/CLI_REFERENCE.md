@@ -239,16 +239,19 @@ Create a new application in the current organization.
 | `--host` | | `String` | | Application host URL |
 | `--cloud-url` | | `String` | | Cloud scan target URL (required for cloud type) |
 | `--team-id` | | `String` | | Team ID to assign the application to |
+| `--repo` | | `String` | | Link to a repository by name (e.g., `kaakaww/my-api`) |
+| `--repo-id` | | `String` | | Link to a repository by ID (UUID) |
 | `--dry-run` | `-N` | `bool` | | Preview without creating |
 
 | Component | Value |
 |-----------|-------|
 | Source | `src/cli/app.rs` |
-| API call | `POST /api/v1/org/{orgId}/app` |
+| API call | `POST /api/v1/org/{orgId}/app` (+ repo link if `--repo`/`--repo-id`) |
 
 **Output:**
 - **Pretty/table**: prints application ID to stdout (pipeable), confirmation to stderr
-- **JSON**: full application object wrapped in `{data, meta}`
+- **JSON**: full application object wrapped in `{data, meta}`. If `--repo`/`--repo-id` is provided, `data` contains `{application, repo_link}`.
+- When run from a git repo without `--repo`, suggests a `repo link` command for the detected repo
 
 #### `app update`
 

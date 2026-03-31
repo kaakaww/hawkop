@@ -73,54 +73,40 @@ pub async fn link(
         }
     };
 
-    // Read existing mappings
-    let existing_apps: Vec<RepoAppInfoWrite> = resolved_repo
-        .app_infos
-        .iter()
-        .map(|ai| RepoAppInfoWrite {
-            id: ai.app_id.clone(),
-            name: ai.app_name.clone(),
-        })
-        .collect();
-
-    // Check if already linked (by ID)
-    if let Some(ref link_id) = new_app_info.id
-        && existing_apps
-            .iter()
-            .any(|a| a.id.as_deref() == Some(link_id))
-    {
-        match ctx.format {
-            OutputFormat::Json => {
-                let output = serde_json::json!({
-                    "data": {
-                        "alreadyLinked": true,
-                        "repoId": resolved_repo_id,
-                        "appId": link_id
-                    },
-                    "meta": {
-                        "version": env!("CARGO_PKG_VERSION"),
-                        "timestamp": chrono::Utc::now().to_rfc3339()
-                    }
-                });
-                println!("{}", serde_json::to_string_pretty(&output)?);
+    // Check if already linked (by ID only — name-based linking always proceeds)
+    if let Some(ref link_id) = new_app_info.id {
+        let existing = read_existing_mappings(&resolved_repo);
+        if is_already_linked(&existing, link_id) {
+            match ctx.format {
+                OutputFormat::Json => {
+                    let output = serde_json::json!({
+                        "data": {
+                            "alreadyLinked": true,
+                            "repoId": resolved_repo_id,
+                            "appId": link_id
+                        },
+                        "meta": {
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        }
+                    });
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                }
+                _ => {
+                    eprintln!(
+                        "{} Application {} is already linked to repository \"{}\".",
+                        "ℹ".blue(),
+                        link_id,
+                        resolved_repo.name
+                    );
+                }
             }
-            _ => {
-                eprintln!(
-                    "{} Application {} is already linked to repository \"{}\".",
-                    "ℹ".blue(),
-                    link_id,
-                    resolved_repo.name
-                );
-            }
+            return Ok(());
         }
-        return Ok(());
     }
 
-    // Merge: existing + new
-    let mut merged_apps = existing_apps;
-    merged_apps.push(new_app_info.clone());
-
     if dry_run {
+        let existing_count = resolved_repo.app_infos.len();
         eprintln!("{}", "DRY RUN - no changes will be made".yellow());
         eprintln!();
         eprintln!(
@@ -135,54 +121,62 @@ pub async fn link(
         }
         eprintln!(
             "  Existing mappings: {} (will be preserved)",
-            merged_apps.len() - 1
+            existing_count
         );
-        eprintln!("  Total mappings after: {}", merged_apps.len());
+        eprintln!("  Total mappings after: {}", existing_count + 1);
         return Ok(());
     }
 
-    debug!(
-        "Linking app to repo {}: {:?} (total mappings: {})",
-        resolved_repo_id,
-        new_app_info,
-        merged_apps.len()
-    );
+    // Delegate to shared read-merge-write helper
+    let result = link_app_to_repo(&*ctx.client, org_id, &resolved_repo, &new_app_info).await?;
 
-    let request = ReplaceRepoAppMappingsRequest {
-        org_id: org_id.to_string(),
-        repo_id: resolved_repo_id.clone(),
-        app_infos: merged_apps,
-    };
-
-    let response = ctx.client.replace_repo_app_mappings(request).await?;
-
-    match ctx.format {
-        OutputFormat::Json => {
-            let output = serde_json::json!({
-                "data": response,
-                "meta": {
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "timestamp": chrono::Utc::now().to_rfc3339()
+    match result {
+        LinkResult::Linked {
+            ref repo_id,
+            ref repo_name,
+            total_mappings,
+        } => match ctx.format {
+            OutputFormat::Json => {
+                let output = serde_json::json!({
+                    "data": {
+                        "repoId": repo_id,
+                        "repoName": repo_name,
+                        "totalMappings": total_mappings,
+                    },
+                    "meta": {
+                        "version": env!("CARGO_PKG_VERSION"),
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    }
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+            _ => {
+                eprintln!(
+                    "{} Linked to repository \"{}\" ({})",
+                    "✓".green(),
+                    repo_name,
+                    repo_id
+                );
+                if let Some(ref id) = new_app_info.id {
+                    eprintln!("  App ID: {}", id);
                 }
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        }
-        _ => {
+                if let Some(ref name) = new_app_info.name {
+                    eprintln!("  Created + linked app: \"{}\"", name);
+                }
+                eprintln!("  Total app mappings: {}", total_mappings);
+                eprintln!();
+                eprintln!("→ hawkop repo list");
+            }
+        },
+        // AlreadyLinked is handled above before dry-run; this branch is unreachable
+        // for the by-ID case but kept for completeness
+        LinkResult::AlreadyLinked { ref app_id, .. } => {
             eprintln!(
-                "{} Linked to repository \"{}\" ({})",
-                "✓".green(),
-                resolved_repo.name,
-                resolved_repo_id
+                "{} Application {} is already linked to repository \"{}\".",
+                "ℹ".blue(),
+                app_id,
+                resolved_repo.name
             );
-            if let Some(ref id) = new_app_info.id {
-                eprintln!("  App ID: {}", id);
-            }
-            if let Some(ref name) = new_app_info.name {
-                eprintln!("  Created + linked app: \"{}\"", name);
-            }
-            eprintln!("  Total app mappings: {}", response.app_infos.len());
-            eprintln!();
-            eprintln!("→ hawkop repo list");
         }
     }
 
@@ -362,59 +356,66 @@ pub(crate) enum LinkResult {
     AlreadyLinked { repo_id: String, app_id: String },
 }
 
-/// Link an application to a repository using read-merge-write.
-///
-/// This is the shared core logic used by both `repo link` and `app create --repo`.
-/// It reads existing mappings, merges the new app, and POSTs the complete list.
-pub(crate) async fn link_app_to_repo(
-    client: &(impl ListingApi + RepoApi),
-    org_id: &str,
-    repo: &Repository,
-    app_id: &str,
-) -> Result<LinkResult> {
-    let repo_id = repo.id.clone().ok_or_else(|| {
-        crate::error::Error::Other("Repository has no ID (unexpected API response).".to_string())
-    })?;
-
-    // Read existing mappings
-    let existing_apps: Vec<RepoAppInfoWrite> = repo
-        .app_infos
+/// Build the list of existing app mappings from a repository, as `RepoAppInfoWrite`.
+pub(crate) fn read_existing_mappings(repo: &Repository) -> Vec<RepoAppInfoWrite> {
+    repo.app_infos
         .iter()
         .map(|ai| RepoAppInfoWrite {
             id: ai.app_id.clone(),
             name: ai.app_name.clone(),
         })
-        .collect();
+        .collect()
+}
 
-    // Check if already linked
-    if existing_apps
-        .iter()
-        .any(|a| a.id.as_deref() == Some(app_id))
+/// Check if an app (by ID) is already linked to a repository.
+pub(crate) fn is_already_linked(existing: &[RepoAppInfoWrite], app_id: &str) -> bool {
+    existing.iter().any(|a| a.id.as_deref() == Some(app_id))
+}
+
+/// Link an application to a repository using read-merge-write.
+///
+/// Accepts a `RepoAppInfoWrite` so callers can link by ID (`--app-id`) or
+/// by name (`--app-name`, which creates a new app during linking).
+///
+/// This is the shared core logic used by `repo link`, `app create --repo`,
+/// and `init` post-setup.
+pub(crate) async fn link_app_to_repo(
+    client: &(impl ListingApi + RepoApi),
+    org_id: &str,
+    repo: &Repository,
+    new_app: &RepoAppInfoWrite,
+) -> Result<LinkResult> {
+    let repo_id = repo.id.clone().ok_or_else(|| {
+        crate::error::Error::Other("Repository has no ID (unexpected API response).".to_string())
+    })?;
+
+    let existing = read_existing_mappings(repo);
+
+    // Check if already linked (only when linking by ID)
+    if let Some(ref aid) = new_app.id
+        && is_already_linked(&existing, aid)
     {
         return Ok(LinkResult::AlreadyLinked {
             repo_id,
-            app_id: app_id.to_string(),
+            app_id: aid.clone(),
         });
     }
 
     // Merge: existing + new
-    let mut merged_apps = existing_apps;
-    merged_apps.push(RepoAppInfoWrite {
-        id: Some(app_id.to_string()),
-        name: None,
-    });
+    let mut merged = existing;
+    merged.push(new_app.clone());
 
     debug!(
-        "Linking app {} to repo {} (total mappings: {})",
-        app_id,
+        "Linking app {:?} to repo {} (total mappings: {})",
+        new_app,
         repo_id,
-        merged_apps.len()
+        merged.len()
     );
 
     let request = ReplaceRepoAppMappingsRequest {
         org_id: org_id.to_string(),
         repo_id: repo_id.clone(),
-        app_infos: merged_apps,
+        app_infos: merged,
     };
 
     let response = client.replace_repo_app_mappings(request).await?;
@@ -424,4 +425,255 @@ pub(crate) async fn link_app_to_repo(
         repo_name: repo.name.clone(),
         total_mappings: response.app_infos.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::mock::MockStackHawkClient;
+    use crate::client::models::RepoAppInfo;
+
+    /// Create a minimal Repository for testing.
+    fn make_repo(id: &str, name: &str, app_infos: Vec<RepoAppInfo>) -> Repository {
+        Repository {
+            id: Some(id.to_string()),
+            repo_source: Some("GITHUB".to_string()),
+            provider_org_name: Some("kaakaww".to_string()),
+            name: name.to_string(),
+            open_api_spec_info: None,
+            has_generated_open_api_spec: false,
+            is_in_attack_surface: true,
+            framework_names: vec![],
+            sensitive_data_tags: vec![],
+            last_commit_timestamp: None,
+            last_contributor: None,
+            commit_count: 0,
+            app_infos,
+            insights: vec![],
+        }
+    }
+
+    fn make_app_info(id: &str, name: &str) -> RepoAppInfo {
+        RepoAppInfo {
+            app_id: Some(id.to_string()),
+            app_name: Some(name.to_string()),
+        }
+    }
+
+    // ── read_existing_mappings ───────────────────────────────────────────
+
+    #[test]
+    fn read_existing_mappings_empty_repo() {
+        let repo = make_repo("r1", "my-repo", vec![]);
+        let mappings = read_existing_mappings(&repo);
+        assert!(mappings.is_empty());
+    }
+
+    #[test]
+    fn read_existing_mappings_preserves_all() {
+        let repo = make_repo(
+            "r1",
+            "my-repo",
+            vec![
+                make_app_info("a1", "app-one"),
+                make_app_info("a2", "app-two"),
+            ],
+        );
+        let mappings = read_existing_mappings(&repo);
+        assert_eq!(mappings.len(), 2);
+        assert_eq!(mappings[0].id.as_deref(), Some("a1"));
+        assert_eq!(mappings[1].name.as_deref(), Some("app-two"));
+    }
+
+    // ── is_already_linked ────────────────────────────────────────────────
+
+    #[test]
+    fn is_already_linked_true() {
+        let existing = vec![RepoAppInfoWrite {
+            id: Some("a1".to_string()),
+            name: None,
+        }];
+        assert!(is_already_linked(&existing, "a1"));
+    }
+
+    #[test]
+    fn is_already_linked_false() {
+        let existing = vec![RepoAppInfoWrite {
+            id: Some("a1".to_string()),
+            name: None,
+        }];
+        assert!(!is_already_linked(&existing, "a2"));
+    }
+
+    #[test]
+    fn is_already_linked_empty() {
+        let existing: Vec<RepoAppInfoWrite> = vec![];
+        assert!(!is_already_linked(&existing, "a1"));
+    }
+
+    // ── resolve_repo ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn resolve_repo_by_id() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_repo("r1", "my-repo", vec![])])
+            .await;
+        let repo = resolve_repo(&client, "org1", Some("r1"), None)
+            .await
+            .unwrap();
+        assert_eq!(repo.name, "my-repo");
+    }
+
+    #[tokio::test]
+    async fn resolve_repo_by_name() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_repo("r1", "my-repo", vec![])])
+            .await;
+        let repo = resolve_repo(&client, "org1", None, Some("my-repo"))
+            .await
+            .unwrap();
+        assert_eq!(repo.id.as_deref(), Some("r1"));
+    }
+
+    #[tokio::test]
+    async fn resolve_repo_by_name_case_insensitive() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_repo("r1", "My-Repo", vec![])])
+            .await;
+        let repo = resolve_repo(&client, "org1", None, Some("my-repo"))
+            .await
+            .unwrap();
+        assert_eq!(repo.name, "My-Repo");
+    }
+
+    #[tokio::test]
+    async fn resolve_repo_not_found() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_repo("r1", "other-repo", vec![])])
+            .await;
+        let err = resolve_repo(&client, "org1", None, Some("missing"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("No repository found"));
+    }
+
+    #[tokio::test]
+    async fn resolve_repo_ambiguous() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![
+                make_repo("r1", "my-repo", vec![]),
+                make_repo("r2", "my-repo", vec![]),
+            ])
+            .await;
+        let err = resolve_repo(&client, "org1", None, Some("my-repo"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Ambiguous"));
+    }
+
+    #[tokio::test]
+    async fn resolve_repo_neither_selector() {
+        let client = MockStackHawkClient::new();
+        let err = resolve_repo(&client, "org1", None, None).await.unwrap_err();
+        assert!(err.to_string().contains("Specify exactly one"));
+    }
+
+    // ── link_app_to_repo ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn link_app_to_repo_success() {
+        let repo = make_repo("r1", "my-repo", vec![]);
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![repo.clone()])
+            .await;
+        let app_info = RepoAppInfoWrite {
+            id: Some("a1".to_string()),
+            name: None,
+        };
+        let result = link_app_to_repo(&client, "org1", &repo, &app_info)
+            .await
+            .unwrap();
+        match result {
+            LinkResult::Linked {
+                repo_id,
+                total_mappings,
+                ..
+            } => {
+                assert_eq!(repo_id, "r1");
+                assert_eq!(total_mappings, 1);
+            }
+            _ => panic!("Expected Linked, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn link_app_to_repo_already_linked() {
+        let repo = make_repo("r1", "my-repo", vec![make_app_info("a1", "existing-app")]);
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![repo.clone()])
+            .await;
+        let app_info = RepoAppInfoWrite {
+            id: Some("a1".to_string()),
+            name: None,
+        };
+        let result = link_app_to_repo(&client, "org1", &repo, &app_info)
+            .await
+            .unwrap();
+        match result {
+            LinkResult::AlreadyLinked { app_id, .. } => {
+                assert_eq!(app_id, "a1");
+            }
+            _ => panic!("Expected AlreadyLinked, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn link_app_to_repo_preserves_existing() {
+        let repo = make_repo(
+            "r1",
+            "my-repo",
+            vec![
+                make_app_info("a1", "app-one"),
+                make_app_info("a2", "app-two"),
+            ],
+        );
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![repo.clone()])
+            .await;
+        let app_info = RepoAppInfoWrite {
+            id: Some("a3".to_string()),
+            name: None,
+        };
+        let result = link_app_to_repo(&client, "org1", &repo, &app_info)
+            .await
+            .unwrap();
+        match result {
+            LinkResult::Linked { total_mappings, .. } => {
+                assert_eq!(total_mappings, 3); // 2 existing + 1 new
+            }
+            _ => panic!("Expected Linked, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn link_app_to_repo_by_name() {
+        let repo = make_repo("r1", "my-repo", vec![]);
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![repo.clone()])
+            .await;
+        let app_info = RepoAppInfoWrite {
+            id: None,
+            name: Some("new-app".to_string()),
+        };
+        // Name-based linking doesn't check already-linked (no ID to compare)
+        let result = link_app_to_repo(&client, "org1", &repo, &app_info)
+            .await
+            .unwrap();
+        match result {
+            LinkResult::Linked { total_mappings, .. } => {
+                assert_eq!(total_mappings, 1);
+            }
+            _ => panic!("Expected Linked, got {:?}", result),
+        }
+    }
 }

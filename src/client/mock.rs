@@ -174,6 +174,12 @@ impl MockStackHawkClient {
         self
     }
 
+    /// Configure repositories to return from list_repos/get_repo.
+    pub async fn with_repos(self, repos: Vec<Repository>) -> Self {
+        *self.repos.lock().await = repos;
+        self
+    }
+
     /// Configure scans to return from list_scans.
     #[allow(dead_code)]
     pub async fn with_scans(self, scans: Vec<ScanResult>) -> Self {

@@ -240,7 +240,11 @@ async fn offer_create_and_link(
     );
 
     // Link to repo
-    match crate::cli::repo::link_app_to_repo(client, org_id, platform_repo, &app.id).await {
+    let app_info = crate::client::models::RepoAppInfoWrite {
+        id: Some(app.id.clone()),
+        name: None,
+    };
+    match crate::cli::repo::link_app_to_repo(client, org_id, platform_repo, &app_info).await {
         Ok(crate::cli::repo::LinkResult::Linked { repo_name, .. }) => {
             println!("  {} Linked to repository \"{}\"", "✓".green(), repo_name);
         }

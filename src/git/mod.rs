@@ -433,4 +433,104 @@ mod tests {
         assert_eq!(GitProvider::AzureDevOps.to_string(), "azure_devops");
         assert_eq!(GitProvider::Unknown.to_string(), "unknown");
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // match_platform_repo tests
+    // ════════════════════════════════════════════════════════════════════════
+
+    use crate::client::mock::MockStackHawkClient;
+    use crate::client::models::Repository as PlatformRepo;
+
+    fn make_platform_repo(name: &str, provider_org: &str) -> PlatformRepo {
+        PlatformRepo {
+            id: Some(format!("id-{}", name)),
+            repo_source: Some("GITHUB".to_string()),
+            provider_org_name: Some(provider_org.to_string()),
+            name: name.to_string(),
+            open_api_spec_info: None,
+            has_generated_open_api_spec: false,
+            is_in_attack_surface: true,
+            framework_names: vec![],
+            sensitive_data_tags: vec![],
+            last_commit_timestamp: None,
+            last_contributor: None,
+            commit_count: 0,
+            app_infos: vec![],
+            insights: vec![],
+        }
+    }
+
+    fn make_local(owner: &str, name: &str) -> LocalRepoInfo {
+        LocalRepoInfo {
+            remote_url: format!("git@github.com:{}/{}.git", owner, name),
+            provider: GitProvider::GitHub,
+            owner: owner.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_exact_match() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_platform_repo("hawkop", "kaakaww")])
+            .await;
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "hawkop");
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_case_insensitive() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_platform_repo("HawkOp", "KaaKaWW")])
+            .await;
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_name_only_fallback() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_platform_repo("hawkop", "different-org")])
+            .await;
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(result.is_some(), "Should fall back to name-only match");
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_no_match() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![make_platform_repo("other-repo", "kaakaww")])
+            .await;
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_ambiguous_returns_none() {
+        let client = MockStackHawkClient::new()
+            .with_repos(vec![
+                make_platform_repo("hawkop", "org-a"),
+                make_platform_repo("hawkop", "org-b"),
+            ])
+            .await;
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(
+            result.is_none(),
+            "Ambiguous name matches should return None"
+        );
+    }
+
+    #[tokio::test]
+    async fn match_platform_repo_empty_repos() {
+        let client = MockStackHawkClient::new();
+        let local = make_local("kaakaww", "hawkop");
+        let result = match_platform_repo(&client, "org1", &local).await.unwrap();
+        assert!(result.is_none());
+    }
 }

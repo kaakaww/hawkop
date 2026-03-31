@@ -14,10 +14,10 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 | Phase | Area | Endpoints | Status |
 |-------|------|-----------|--------|
 | Done | Auth, List/Get, Scan drill-down, Teams CRUD, Configs CRUD, Envs, Hosted scans, OAS mappings, Audit, Secrets | 33 | Complete |
-| 1 | App CRUD + Org Findings | 5 | Not started |
+| 1 | App CRUD + Org Findings | 5 | Partial (4/5 — findings list pending) |
 | 2 | Policy Management | 7 | Not started |
 | 3 | OAS + Env Completion | 3 | Not started |
-| 4 | Repo Management + Misc | 3 | Not started |
+| 4 | Repo Management + Misc | 3 | Partial (2/3 — repo set-apps + repo link done) |
 | 5 | Profile Scans + Triage (deferred — under active development) | 6 | Not started |
 
 ---
@@ -29,10 +29,10 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 
 | Endpoint | Method | operationId | CLI Command | Status |
 |----------|--------|-------------|-------------|--------|
-| `/api/v1/org/{orgId}/app` | POST | `createApplication` | `app create` | Not started |
-| `/api/v1/app/{appId}` | GET | `getApplication` | `app get` | Not started |
-| `/api/v1/app/{appId}` | POST | `updateApplication` | `app update` | Not started |
-| `/api/v1/app/{appId}` | DELETE | `deleteApplication` | `app delete` | Not started |
+| `/api/v1/org/{orgId}/app` | POST | `createApplication` | `app create` | Complete |
+| `/api/v1/app/{appId}` | GET | `getApplication` | `app get` | Complete |
+| `/api/v1/app/{appId}` | POST | `updateApplication` | `app update` | Complete |
+| `/api/v1/app/{appId}` | DELETE | `deleteApplication` | `app delete` | Complete |
 | `/api/v1/reports/org/{orgId}/findings` | GET | `listOrganizationFindings` | `findings list` | Not started |
 
 ### Notes
@@ -92,7 +92,7 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 | Endpoint | Method | operationId | CLI Command | Status |
 |----------|--------|-------------|-------------|--------|
 | `/api/v1/org/{orgId}/repos/apps` | PUT | `createAppsForRepos` | `repo associate` | Not started |
-| `/api/v1/org/{orgId}/repo/{repoId}/applications` | POST | `replaceRepoAppMappings` | `repo set-apps` | Not started |
+| `/api/v1/org/{orgId}/repo/{repoId}/applications` | POST | `replaceRepoAppMappings` | `repo set-apps` / `repo link` | Complete |
 | `/api/v1/org/{orgId}/repo/{repoId}/sensitive/list` | GET | `listRepoSensitiveData` | `repo sensitive-data` | Not started |
 
 ### Also available but lower priority
