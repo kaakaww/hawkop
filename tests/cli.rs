@@ -29,6 +29,7 @@ fn status_uses_custom_config_path() -> Result<(), Box<dyn std::error::Error>> {
         .arg("--config")
         .arg(&config_path)
         .env_remove("HAWKOP_CONFIG")
+        .env_remove("HAWKOP_PROFILE")
         .assert()
         .success();
 
@@ -198,6 +199,7 @@ fn missing_config_shows_helpful_error() -> Result<(), Box<dyn std::error::Error>
         .arg("--config")
         .arg(&nonexistent_config)
         .env_remove("HAWKOP_CONFIG")
+        .env_remove("HAWKOP_PROFILE")
         .assert()
         .failure();
 

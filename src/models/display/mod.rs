@@ -15,11 +15,12 @@ mod policy;
 mod repo;
 mod run;
 mod scan;
+pub mod scan_full;
 mod secret;
 mod user;
 
 // Re-export all display types used by CLI commands
-pub use app::AppDisplay;
+pub use app::{AppDetailDisplay, AppDisplay};
 pub use audit::AuditDisplay;
 pub use config::ConfigDisplay;
 pub use env::EnvDisplay;

@@ -4,8 +4,9 @@ use clap::{Parser, Subcommand};
 pub use clap_complete::Shell;
 
 use completions::{
-    app_name_candidates, plugin_id_candidates, scan_id_candidates, team_name_candidates,
-    uri_id_candidates, user_email_candidates,
+    app_id_candidates, app_name_candidates, plugin_id_candidates, repo_id_candidates,
+    repo_name_candidates, scan_id_candidates, team_name_candidates, uri_id_candidates,
+    user_email_candidates,
 };
 
 pub mod app;
@@ -227,6 +228,102 @@ pub enum AppCommands {
         #[command(flatten)]
         pagination: PaginationArgs,
     },
+
+    /// Create a new application in the current organization
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app create --name my-api --env Development\n  \
+            hawkop app create --name my-api --env prod --type cloud --host https://api.example.com\n  \
+            hawkop app create --name my-api --env dev --repo kaakaww/my-api\n  \
+            hawkop app create --name my-api --env dev --repo-id <uuid>\n  \
+            hawkop app create --name my-api --format json | jq '.data.applicationId'\n\n\
+        OUTPUT:\n  \
+            Table/pretty: prints application ID to stdout (pipeable).\n  \
+            JSON: prints full application object wrapped in {data, meta}.\n  \
+            If --repo/--repo-id is provided, links the app to the repo after creation.")]
+    Create {
+        /// Application name (required)
+        #[arg(long, short = 'n')]
+        name: String,
+
+        /// Initial environment name
+        #[arg(long, short = 'e', default_value = "Development")]
+        env: String,
+
+        /// Application type: standard (default) or cloud
+        #[arg(long = "type", short = 't', default_value = "standard")]
+        app_type: String,
+
+        /// Application host URL (e.g., http://localhost:8080)
+        #[arg(long)]
+        host: Option<String>,
+
+        /// Cloud scan target URL (required for cloud type apps)
+        #[arg(long = "cloud-url")]
+        cloud_scan_target_url: Option<String>,
+
+        /// Team ID to assign the new application to
+        #[arg(long)]
+        team_id: Option<String>,
+
+        /// Link to a repository by name (e.g., kaakaww/my-api)
+        #[arg(long, conflicts_with = "create_repo_id", add = repo_name_candidates())]
+        repo: Option<String>,
+
+        /// Link to a repository by ID (UUID)
+        #[arg(long = "repo-id", id = "create_repo_id", add = repo_id_candidates())]
+        repo_id: Option<String>,
+
+        /// Preview without creating
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
+
+    /// Get application details by ID or name
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app get <app-id>\n  \
+            hawkop app get --name my-api\n  \
+            hawkop app get <app-id> --format json | jq '.data'")]
+    Get {
+        /// Application ID (UUID)
+        #[arg(group = "app_selector", add = app_id_candidates())]
+        app_id: Option<String>,
+
+        /// Application name (resolved via API)
+        #[arg(long, short = 'n', group = "app_selector", add = app_name_candidates())]
+        name: Option<String>,
+    },
+
+    /// Rename an existing application
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app update <app-id> --name new-name\n  \
+            hawkop app update <app-id> --name new-name --dry-run")]
+    Update {
+        /// Application ID (UUID)
+        #[arg(add = app_id_candidates())]
+        app_id: String,
+
+        /// New application name
+        #[arg(long, short = 'n')]
+        name: String,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
+
+    /// Delete an application (destructive)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop app delete <app-id>\n  \
+            hawkop app delete <app-id> --yes")]
+    Delete {
+        /// Application ID (UUID)
+        #[arg(add = app_id_candidates())]
+        app_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 }
 
 /// Scan management subcommands
@@ -250,7 +347,14 @@ pub enum ScanCommands {
             hawkop scan get --app-id <uuid>          # Latest for app (by ID)\n  \
             hawkop scan get abc123                   # Specific scan\n  \
             hawkop scan get abc123 --plugin-id 40012 # Plugin detail\n  \
-            hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message"
+            hawkop scan get abc123 --uri-id xyz -m   # Finding with HTTP message\n  \
+            hawkop scan get --detail full --format json    # Full detail for AI agents\n  \
+            hawkop scan get --app myapp --detail full --max-findings 10\n\n\
+        DETAIL LEVELS:\n  \
+            (default)  Overview with alerts table\n  \
+            full       Complete findings with HTTP messages, evidence,\n  \
+                       remediation advice, and validation commands.\n  \
+                       Best with --format json for AI agent consumption."
     )]
     Get {
         /// Scan ID (UUID) or "latest" - defaults to latest if omitted
@@ -268,6 +372,18 @@ pub enum ScanCommands {
         /// Filter by environment (only with "latest")
         #[arg(long, short = 'e')]
         env: Option<String>,
+
+        /// Detail level: "full" fetches all findings with HTTP messages and remediation
+        #[arg(long, short = 'd')]
+        detail: Option<String>,
+
+        /// Maximum number of findings to include (sorted by severity, highest first)
+        #[arg(long, default_value = "100")]
+        max_findings: usize,
+
+        /// Maximum response body size in bytes before truncation (default: 10KB)
+        #[arg(long, default_value = "10240")]
+        max_body_size: usize,
 
         /// Show detail for specific plugin/vulnerability type
         #[arg(long = "plugin-id", short = 'p', add = plugin_id_candidates())]
@@ -626,6 +742,62 @@ pub enum RepoCommands {
     List {
         #[command(flatten)]
         pagination: PaginationArgs,
+    },
+
+    /// Link an application to a repository (additive, preserves existing mappings)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop repo link --repo-id <uuid> --app-id <uuid>         # Link existing app\n  \
+            hawkop repo link --repo-id <uuid> --app-name \"my-api\"     # Create new app + link\n  \
+            hawkop repo link --repo <name> --app-id <uuid>            # Find repo by name\n\n\
+        The API replaces all app mappings for a repo, so this command reads\n\
+        existing mappings first, merges in the new app, then writes the full list.")]
+    Link {
+        /// Repository ID (UUID)
+        #[arg(long, group = "repo_selector", add = repo_id_candidates())]
+        repo_id: Option<String>,
+
+        /// Repository name (resolved via API)
+        #[arg(long = "repo", group = "repo_selector", add = repo_name_candidates())]
+        repo_name: Option<String>,
+
+        /// Existing application ID to link
+        #[arg(long, group = "app_selector", add = app_id_candidates())]
+        app_id: Option<String>,
+
+        /// New application name (creates app + links)
+        #[arg(long, group = "app_selector", add = app_name_candidates())]
+        app_name: Option<String>,
+
+        /// Environment for new app (only with --app-name)
+        #[arg(long, short = 'e', default_value = "Development")]
+        env: String,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
+    },
+
+    /// Replace all application mappings for a repository (full replacement)
+    #[command(after_help = "EXAMPLES:\n  \
+            hawkop repo set-apps --repo-id <uuid> --app-ids <id1>,<id2> --yes\n\n\
+        WARNING: This replaces ALL app mappings. Existing mappings not in the\n\
+        list will be removed. Use 'repo link' for additive operations.")]
+    SetApps {
+        /// Repository ID (UUID)
+        #[arg(long, add = repo_id_candidates())]
+        repo_id: String,
+
+        /// Comma-separated application IDs
+        #[arg(long, value_delimiter = ',', add = app_id_candidates())]
+        app_ids: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Preview without making changes
+        #[arg(long, short = 'N')]
+        dry_run: bool,
     },
 }
 

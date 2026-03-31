@@ -9,6 +9,7 @@ mod cli;
 mod client;
 mod config;
 mod error;
+mod git;
 mod models;
 mod output;
 
@@ -83,6 +84,40 @@ async fn run() -> Result<()> {
                 app_type,
                 pagination,
             } => cli::app::list(&opts, app_type.as_deref(), &pagination).await,
+            AppCommands::Create {
+                name,
+                env,
+                app_type,
+                host,
+                cloud_scan_target_url,
+                team_id,
+                repo,
+                repo_id,
+                dry_run,
+            } => {
+                cli::app::create(
+                    &opts,
+                    &name,
+                    &env,
+                    &app_type,
+                    host.as_deref(),
+                    cloud_scan_target_url.as_deref(),
+                    team_id.as_deref(),
+                    repo.as_deref(),
+                    repo_id.as_deref(),
+                    dry_run,
+                )
+                .await
+            }
+            AppCommands::Get { app_id, name } => {
+                cli::app::get(&opts, app_id.as_deref(), name.as_deref()).await
+            }
+            AppCommands::Update {
+                app_id,
+                name,
+                dry_run,
+            } => cli::app::update(&opts, &app_id, &name, dry_run).await,
+            AppCommands::Delete { app_id, yes } => cli::app::delete(&opts, &app_id, yes).await,
         },
         Commands::Scan(scan_cmd) => match scan_cmd {
             ScanCommands::List {
@@ -94,6 +129,9 @@ async fn run() -> Result<()> {
                 app,
                 app_id,
                 env,
+                detail,
+                max_findings,
+                max_body_size,
                 plugin_id,
                 uri_id,
                 message,
@@ -107,6 +145,9 @@ async fn run() -> Result<()> {
                     app.as_deref(),
                     app_id.as_deref(),
                     env.as_deref(),
+                    detail.as_deref(),
+                    max_findings,
+                    max_body_size,
                     plugin_id.as_deref(),
                     uri_id.as_deref(),
                     message,
@@ -198,6 +239,31 @@ async fn run() -> Result<()> {
         },
         Commands::Repo(repo_cmd) => match repo_cmd {
             RepoCommands::List { pagination } => cli::repo::list(&opts, &pagination).await,
+            RepoCommands::Link {
+                repo_id,
+                repo_name,
+                app_id,
+                app_name,
+                env,
+                dry_run,
+            } => {
+                cli::repo::link(
+                    &opts,
+                    repo_id.as_deref(),
+                    repo_name.as_deref(),
+                    app_id.as_deref(),
+                    app_name.as_deref(),
+                    &env,
+                    dry_run,
+                )
+                .await
+            }
+            RepoCommands::SetApps {
+                repo_id,
+                app_ids,
+                yes,
+                dry_run,
+            } => cli::repo::set_apps(&opts, &repo_id, &app_ids, yes, dry_run).await,
         },
         Commands::Oas(oas_cmd) => match oas_cmd {
             OasCommands::List { pagination } => cli::oas::list(&opts, &pagination).await,

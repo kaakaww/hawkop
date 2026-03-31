@@ -76,10 +76,22 @@ impl FunctionalTestContext {
     /// Create a new test context with safety checks.
     ///
     /// This will:
-    /// 1. Detect if targeting production API
-    /// 2. Require explicit confirmation for production usage
+    /// 1. Require HAWKOP_PROFILE to be set (prevents accidental production usage)
+    /// 2. Detect if targeting production API
+    /// 3. Require explicit confirmation for production usage
     pub fn new() -> Self {
         let profile = env::var("HAWKOP_PROFILE").ok();
+
+        // Hard guard: require HAWKOP_PROFILE to be set.
+        // Without this, tests silently run against the default profile (often production),
+        // which can mutate production config (e.g., org set roundtrip test).
+        if profile.is_none() {
+            panic!(
+                "HAWKOP_PROFILE must be set to run functional tests.\n\
+                 Example: HAWKOP_PROFILE=test cargo test --features functional-tests ...\n\
+                 This prevents accidentally running tests against your default (production) profile."
+            );
+        }
 
         // Safety check for production API
         Self::check_production_safety(&profile);
@@ -202,6 +214,13 @@ impl FunctionalTestContext {
                 let error_msg = first_line.strip_prefix("Error: ").unwrap_or(first_line);
                 eprintln!("   Error: {}", error_msg);
                 return; // Pass the test - feature not available
+            }
+            if stderr.contains("Multiple applications match") {
+                eprintln!(
+                    "\n⚠️  SKIPPED: {} - ambiguous app name in test org",
+                    args.join(" ")
+                );
+                return; // Pass - command works, just duplicate app names in test org
             }
             // Some other error - fail the test
             panic!(

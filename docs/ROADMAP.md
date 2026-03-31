@@ -1,9 +1,9 @@
 # HawkOp API Coverage Roadmap
 
-**Last updated**: 2026-03-14
-**Current version**: v0.4.0
-**OAS reference**: `stackhawk-openapi.json` (root of repo)
-**Current coverage**: 36/60 endpoints (60%)
+**Last updated**: 2026-03-30
+**Current version**: v0.5.1+ (feature/refinements)
+**OAS reference**: `stackhawk-openapi.json` (root of repo, refreshed 2026-03-28)
+**Current coverage**: 38/55 endpoints (69%)
 
 This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Public API](https://apidocs.stackhawk.com/docs). Each phase groups related endpoints by user value and implementation dependencies.
 
@@ -13,11 +13,12 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 
 | Phase | Area | Endpoints | Status |
 |-------|------|-----------|--------|
-| Done | Auth, List/Get, Scan drill-down, Teams CRUD, Configs CRUD, Envs, Hosted scans, Audit, Secrets | 36 | Complete |
-| 1 | App CRUD + Org Findings | 5 | Not started |
-| 2 | Policy Management | 9 | Not started |
-| 3 | Environment + OAS Completion | 4 | Not started |
-| 4 | Repo Management + Misc | 6 | Not started |
+| Done | Auth, List/Get, Scan drill-down, Teams CRUD, Configs CRUD, Envs, Hosted scans, OAS mappings, Audit, Secrets, App CRUD, Repo link | 38 | Complete |
+| 1 | App CRUD + Org Findings | 5 | Partial (4/5 — findings list pending) |
+| 2 | Policy Management | 7 | Not started |
+| 3 | OAS + Env Completion | 3 | Not started |
+| 4 | Repo Management + Misc | 3 | Partial (2/3 — repo set-apps + repo link done) |
+| 5 | Profile Scans + Triage (deferred — under active development) | 6 | Not started |
 
 ---
 
@@ -28,15 +29,15 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 
 | Endpoint | Method | operationId | CLI Command | Status |
 |----------|--------|-------------|-------------|--------|
-| `/api/v1/org/{orgId}/app` | POST | `createApplication` | `app create` | Not started |
-| `/api/v1/app/{appId}` | GET | `getApplication` | `app get` | Not started |
-| `/api/v1/app/{appId}` | POST | `updateApplication` | `app update` | Not started |
-| `/api/v1/app/{appId}` | DELETE | `deleteApplication` | `app delete` | Not started |
+| `/api/v1/org/{orgId}/app` | POST | `createApplication` | `app create` | Complete |
+| `/api/v1/app/{appId}` | GET | `getApplication` | `app get` | Complete |
+| `/api/v1/app/{appId}` | POST | `updateApplication` | `app update` | Complete |
+| `/api/v1/app/{appId}` | DELETE | `deleteApplication` | `app delete` | Complete |
 | `/api/v1/reports/org/{orgId}/findings` | GET | `listOrganizationFindings` | `findings list` | Not started |
 
 ### Notes
-- `app create` should support `--name`, `--type`, `--env` flags
-- `app delete` must require `--yes` or interactive confirmation
+- `app create` supports `--name`, `--type`, `--env`, `--host`, `--cloud-url`, `--team-id`, `--repo`/`--repo-id` ✅
+- `app delete` requires `--yes` or interactive confirmation ✅
 - `findings list` should support filtering by severity, status, app, and date range
 - Consider whether `findings` is a top-level command or nested under `scan`
 
@@ -52,35 +53,35 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 | `/api/v1/policy` | GET | `getStackHawkScanPolicy` | `policy get --stackhawk` | Not started |
 | `/api/v1/policy/{orgId}/{policyName}` | GET | `getScanPolicyForOrg` | `policy get NAME` | Not started |
 | `/api/v1/policy/{orgId}/update` | POST | `setScanPolicyForOrg` | `policy set` | Not started |
-| `/api/v1/policy/{orgId}/{policyName}` | DELETE | `deleteScanPolicyForOrg` | `policy delete NAME` | Not started |
-| `/api/v1/app/{appId}/policy` | GET | `getApplicationScanPolicy` | `app policy get` | Not started |
 | `/api/v1/app/{appId}/policy/assign` | PUT | `assignAppPlugins` | `app policy assign` | Not started |
 | `/api/v1/app/{appId}/policy/flags` | GET | `getAppTechFlags` | `app policy flags` | Not started |
 | `/api/v1/app/{appId}/policy/flags` | PUT | `updateAppTechFlags` | `app policy flags --set` | Not started |
 | `/api/v1/app/{appId}/policy/plugins/{pluginId}/{toggle}` | GET | `toggleAppPlugin` | `app policy toggle` | Not started |
 
 ### Notes
-- Org policy CRUD follows the same pattern as config CRUD (list/get/set/delete)
+- Org policy CRUD follows the same pattern as config CRUD (list/get/set)
+- `DELETE /api/v1/policy/{orgId}/{policyName}` and `GET /api/v1/app/{appId}/policy` were **removed from the API** in 2026-03 spec update
 - App-level policy commands may be nested: `hawkop app policy ...`
 - Tech flags and plugin toggles are specialized — design CLI carefully
 - `toggleAppPlugin` uses GET with a path param toggle (unusual) — verify behavior
 
 ---
 
-## Phase 3 — Environment + OAS Completion
+## Phase 3 — OAS + Env Completion
 
-**Goal**: Round out environment management and OAS mapping capabilities.
+**Goal**: Migrate OAS commands to new app-scoped API and round out environment management.
 
 | Endpoint | Method | operationId | CLI Command | Status |
 |----------|--------|-------------|-------------|--------|
-| `/api/v1/app/{appId}/env/{envId}` | POST | `updateEnvironment` | `env update` | Not started |
-| `/api/v1/app/{appId}/env/{envId}/config/default` | POST | `createEnvironmentDefaultConfig` | `env config set` | Not started |
-| `/api/v2/org/{orgId}/envs` | GET | `listEnvsV2` | `env list --all` | Not started |
+| `/api/v1/oas/{appId}/upload` | POST | `uploadOAS` | `oas upload` | Not started |
 | `/api/v1/oas/{appId}/mapping` | POST | `toggleApplicationOASMapping` | `oas map` / `oas unmap` | Not started |
+| `/api/v1/app/{appId}/env/{envId}` | POST | `updateEnvironment` | `env update` | Not started |
 
 ### Notes
-- `env list --all` (v2) lists envs across all apps in the org — different from current per-app listing
-- `oas map`/`unmap` toggle should confirm the action before proceeding
+- **⚠️ OAS endpoint migration needed**: `oas list` and `oas get` use removed org-scoped endpoints (`/api/v1/oas/{orgId}/list` and `/api/v1/oas/{orgId}/{oasId}`). These need to be migrated to app-scoped `GET /api/v1/oas/{appId}/mapping` or removed if no replacement exists.
+- `GET /api/v1/app/{appId}/env/{envId}/config/default` was removed from the spec — `env config set` is no longer viable
+- `GET /api/v2/org/{orgId}/envs` (list all envs across org) is still available but lower priority
+- `oas upload` is a new endpoint — enables uploading specs from the CLI
 
 ---
 
@@ -91,16 +92,40 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 | Endpoint | Method | operationId | CLI Command | Status |
 |----------|--------|-------------|-------------|--------|
 | `/api/v1/org/{orgId}/repos/apps` | PUT | `createAppsForRepos` | `repo associate` | Not started |
-| `/api/v1/org/{orgId}/repo/{repoId}/applications` | POST | `replaceRepoAppMappings` | `repo set-apps` | Not started |
+| `/api/v1/org/{orgId}/repo/{repoId}/applications` | POST | `replaceRepoAppMappings` | `repo set-apps` / `repo link` | Complete |
 | `/api/v1/org/{orgId}/repo/{repoId}/sensitive/list` | GET | `listRepoSensitiveData` | `repo sensitive-data` | Not started |
-| `/api/v1/scan/{scanId}` | DELETE | `deleteScan` | `scan delete` | Not started |
-| `/api/v1/app/{appId}/alerts/rules/{integrationId}` | POST | `upsertAlertRule` | `app alerts set-rule` | Not started |
-| `/api/v1/org/{orgId}/user/{userId}/teams` | GET | `listTeamsForOrgAndUser` | `team list --user` | Not started |
 
-### Stretch / Low Priority
-| Endpoint | Method | operationId | Notes |
+### Also available but lower priority
+| Endpoint | Method | CLI Command | Notes |
 |----------|--------|-------------|-------|
-| `/api/v1/app/{appId}/config/{configHash}` | GET | `getConfig` | Historical config by hash — niche use case |
+| `/api/v1/scan/{scanId}` | DELETE | `scan delete` | Destructive — needs confirmation |
+| `/api/v1/org/{orgId}/user/{userId}/teams` | GET | `team list --user` | Convenience filter |
+| `/api/v1/global-configuration/{configName}` | GET | `global-config get` | Returns S3 redirect to shared HawkScan configs |
+
+### Removed from API (previously planned)
+- ~~`POST /api/v1/app/{appId}/alerts/rules/{integrationId}`~~ — Alert rule upsert removed in 2026-03 spec update
+
+---
+
+## Phase 5 — Profile Scans + Triage (deferred)
+
+**Goal**: Support StackHawk's new profile scanning and bulk triage capabilities.
+**Why deferred**: These features are under active development upstream. Wait for API stability before building CLI support.
+
+| Endpoint | Method | operationId | CLI Command | Status |
+|----------|--------|-------------|-------------|--------|
+| `POST /api/v1/app/{appId}/perch/profile-scan` | POST | `launchProfileScan` | `run profile` | Not started |
+| `GET /api/v1/app/{appId}/profile/results` | GET | `getLatestProfileScanResult` | `profile get` | Not started |
+| `GET /api/v1/app/{appId}/profile/results/list` | GET | `listProfileScanResults` | `profile list` | Not started |
+| `GET /api/v1/app/{appId}/profile/results/{scanId}` | GET | `getProfileScanResult` | `profile get --scan` | Not started |
+| `POST /api/v1/org/{orgId}/profile/results` | POST | `bulkGetProfileResults` | `profile list --org` | Not started |
+| `POST /api/v1/org/{orgId}/app/{appId}/env/{envId}/findings/triage` | POST | `bulkTriageFindings` | `findings triage` | Not started |
+
+### Notes
+- Profile scans return testability analysis: app classification, auth markers, path discovery, asset inventory, recommendations
+- Findings triage uses `findingHash` (SHA-256) for stable cross-scan identification — `findingHash` field was added to existing `AlertMsgResponse` and `ApplicationAlertUri` schemas
+- `scan list` now supports `--tag` filtering (`tag=branch:main|develop`) — could be added independently
+- New Perch bulk status endpoint (`POST /api/v1/org/{orgId}/perch/status`) enables multi-app device queries
 
 ---
 
@@ -146,22 +171,29 @@ These endpoints are fully implemented and tested:
 - `POST /api/v1/configuration/{orgId}/rename` — Rename config
 - `POST /api/v1/configuration/{orgId}/validate` — Validate config
 
-### OAS (read)
-- `GET /api/v1/oas/{orgId}/list` — List OAS assets
-- `GET /api/v1/oas/{orgId}/{oasId}` — Get OAS content
+### OAS
 - `GET /api/v1/oas/{appId}/mapping` — Get OAS mappings
+- ⚠️ `GET /api/v1/oas/{orgId}/list` — **Removed from spec** (still called by `oas list`)
+- ⚠️ `GET /api/v1/oas/{orgId}/{oasId}` — **Removed from spec** (still called by `oas get`)
 
-### Repositories (read)
+### Applications (write)
+- `POST /api/v1/org/{orgId}/app` — Create application
+- `GET /api/v1/app/{appId}` — Get application
+- `POST /api/v1/app/{appId}` — Update application
+- `DELETE /api/v1/app/{appId}` — Delete application
+
+### Repositories (read + write)
 - `GET /api/v1/org/{orgId}/repos` — List repos
+- `POST /api/v1/org/{orgId}/repo/{repoId}/applications` — Replace repo app mappings (used by `repo link` and `repo set-apps`)
 
 ### Audit
 - `GET /api/v1/org/{orgId}/audit` — Audit log
 
 ### Environments
 - `GET /api/v1/app/{appId}/env/list` — List environments
-- `GET /api/v1/app/{appId}/env/{envId}/config/default` — Get default config
 - `POST /api/v1/app/{appId}/env` — Create environment
 - `DELETE /api/v1/app/{appId}/env/{envId}` — Delete environment
+- ⚠️ `GET /api/v1/app/{appId}/env/{envId}/config/default` — **Removed from spec** (still called by `env config`)
 
 ### Hosted Scans (Perch)
 - `POST /api/v1/app/{appId}/perch/start` — Start scan

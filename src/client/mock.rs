@@ -7,12 +7,13 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::api::{AuthApi, ListingApi, ScanDetailApi, TeamApi};
+use super::api::{AppApi, AuthApi, ListingApi, RepoApi, ScanDetailApi, TeamApi};
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    CreateTeamRequest, JwtToken, OASAsset, OrgPolicy, Organization, Repository, ScanConfig,
-    ScanMessage, ScanResult, Secret, StackHawkPolicy, Team, TeamApplication, TeamDetail, TeamUser,
-    UpdateApplicationTeamRequest, UpdateTeamRequest, User,
+    CreateApplicationRequest, CreateTeamRequest, CurrentFindingsResponse, JwtToken, OASAsset,
+    OrgPolicy, Organization, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse,
+    RepoAppInfo, Repository, ScanConfig, ScanMessage, ScanResult, Secret, StackHawkPolicy, Team,
+    TeamApplication, TeamDetail, TeamUser, UpdateApplicationTeamRequest, UpdateTeamRequest, User,
 };
 use super::pagination::{PagedResponse, PaginationParams, ScanFilterParams};
 use crate::error::{ApiError, Result};
@@ -170,6 +171,12 @@ impl MockStackHawkClient {
     /// Configure applications to return from list_apps.
     pub async fn with_apps(self, apps: Vec<Application>) -> Self {
         *self.apps.lock().await = apps;
+        self
+    }
+
+    /// Configure repositories to return from list_repos/get_repo.
+    pub async fn with_repos(self, repos: Vec<Repository>) -> Self {
+        *self.repos.lock().await = repos;
         self
     }
 
@@ -652,6 +659,22 @@ impl ScanDetailApi for MockStackHawkClient {
             other_info: None,
             description: None,
             validation_command: None,
+            finding_hash: None,
+        })
+    }
+
+    async fn list_org_findings(
+        &self,
+        _org_id: &str,
+        _app_ids: &[String],
+        _page_size: Option<usize>,
+        _page_token: Option<usize>,
+    ) -> Result<CurrentFindingsResponse> {
+        self.check_error().await?;
+        Ok(CurrentFindingsResponse {
+            findings: vec![],
+            total_findings: Some(0),
+            next_page_token: None,
         })
     }
 }
@@ -788,6 +811,130 @@ impl TeamApi for MockStackHawkClient {
     }
 }
 
+// ============================================================================
+// RepoApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl RepoApi for MockStackHawkClient {
+    async fn get_repo(&self, _org_id: &str, repo_id: &str) -> Result<Repository> {
+        self.check_error().await?;
+
+        let repos = self.repos.lock().await;
+        repos
+            .iter()
+            .find(|r| r.id.as_deref() == Some(repo_id))
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound(format!("Repository not found: {}", repo_id)).into())
+    }
+
+    async fn replace_repo_app_mappings(
+        &self,
+        request: ReplaceRepoAppMappingsRequest,
+    ) -> Result<ReplaceRepoAppMappingsResponse> {
+        self.check_error().await?;
+
+        // Update the mock repo's app_infos
+        let mut repos = self.repos.lock().await;
+        if let Some(repo) = repos
+            .iter_mut()
+            .find(|r| r.id.as_deref() == Some(&request.repo_id))
+        {
+            repo.app_infos = request
+                .app_infos
+                .iter()
+                .map(|ai| RepoAppInfo {
+                    app_id: ai.id.clone(),
+                    app_name: ai.name.clone(),
+                })
+                .collect();
+        }
+
+        Ok(ReplaceRepoAppMappingsResponse {
+            org_id: Some(request.org_id),
+            repo_id: Some(request.repo_id),
+            app_infos: request
+                .app_infos
+                .into_iter()
+                .map(|ai| RepoAppInfo {
+                    app_id: ai.id,
+                    app_name: ai.name,
+                })
+                .collect(),
+        })
+    }
+}
+
+// ============================================================================
+// AppApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl AppApi for MockStackHawkClient {
+    async fn get_app(&self, app_id: &str) -> Result<Application> {
+        self.check_error().await?;
+
+        let apps = self.apps.lock().await;
+        apps.iter()
+            .find(|a| a.id == app_id)
+            .cloned()
+            .ok_or_else(|| ApiError::NotFound(format!("Application not found: {}", app_id)).into())
+    }
+
+    async fn create_app(
+        &self,
+        org_id: &str,
+        request: CreateApplicationRequest,
+    ) -> Result<Application> {
+        self.check_error().await?;
+
+        let existing_count = self.apps.lock().await.len();
+        let new_app = Application {
+            id: format!("mock-app-{}", existing_count + 1),
+            name: request.name,
+            env: Some(request.env),
+            risk_level: None,
+            status: Some("ACTIVE".to_string()),
+            organization_id: Some(org_id.to_string()),
+            application_type: request.application_type,
+            cloud_scan_target: None,
+            env_id: None,
+        };
+
+        let mut apps = self.apps.lock().await;
+        apps.push(new_app.clone());
+
+        Ok(new_app)
+    }
+
+    async fn update_app(&self, app_id: &str, name: &str) -> Result<Application> {
+        self.check_error().await?;
+
+        let mut apps = self.apps.lock().await;
+        let app = apps
+            .iter_mut()
+            .find(|a| a.id == app_id)
+            .ok_or_else(|| ApiError::NotFound(format!("Application not found: {}", app_id)))?;
+
+        app.name = name.to_string();
+        Ok(app.clone())
+    }
+
+    async fn delete_app(&self, app_id: &str) -> Result<()> {
+        self.check_error().await?;
+
+        let mut apps = self.apps.lock().await;
+        let initial_len = apps.len();
+        apps.retain(|a| a.id != app_id);
+
+        if apps.len() == initial_len {
+            return Err(ApiError::NotFound(format!("Application not found: {}", app_id)).into());
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -840,6 +987,7 @@ mod tests {
                 organization_id: Some("org-1".to_string()),
                 application_type: None,
                 cloud_scan_target: None,
+                env_id: None,
             }])
             .await;
 
@@ -968,6 +1116,7 @@ mod tests {
             organization_id: None,
             application_type: None,
             cloud_scan_target: None,
+            env_id: None,
         }];
         let page1 = vec![Application {
             id: "app-2".to_string(),
@@ -978,6 +1127,7 @@ mod tests {
             organization_id: None,
             application_type: None,
             cloud_scan_target: None,
+            env_id: None,
         }];
 
         let mock = MockStackHawkClient::new()
@@ -1012,6 +1162,7 @@ mod tests {
             organization_id: None,
             application_type: None,
             cloud_scan_target: None,
+            env_id: None,
         }];
         let page1 = vec![
             Application {
@@ -1023,6 +1174,7 @@ mod tests {
                 organization_id: None,
                 application_type: None,
                 cloud_scan_target: None,
+                env_id: None,
             },
             Application {
                 id: "app-3".to_string(),
@@ -1033,6 +1185,7 @@ mod tests {
                 organization_id: None,
                 application_type: None,
                 cloud_scan_target: None,
+                env_id: None,
             },
         ];
 

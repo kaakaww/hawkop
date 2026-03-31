@@ -35,6 +35,41 @@ pub struct Application {
     /// Cloud scan target (only for CLOUD apps)
     #[serde(skip_serializing_if = "Option::is_none", rename = "cloudScanTarget")]
     pub cloud_scan_target: Option<CloudScanTarget>,
+
+    /// Environment ID (populated when listing environments)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "envId")]
+    pub env_id: Option<String>,
+}
+
+/// Request to create a new application
+///
+/// Maps to `POST /api/v1/org/{orgId}/app` (application.NewApplicationRequest).
+/// Only writable fields are included — readOnly fields (applicationStatus,
+/// dataType, organizationId, riskLevel) are set by the API.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApplicationRequest {
+    /// Application name (required)
+    pub name: String,
+
+    /// Initial environment name (required)
+    pub env: String,
+
+    /// Application type: "STANDARD" or "CLOUD" (defaults to STANDARD)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application_type: Option<String>,
+
+    /// Target host URL for scanning
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+
+    /// Cloud scan target URL (only for CLOUD type applications)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cloudScanTargetURL")]
+    pub cloud_scan_target_url: Option<String>,
+
+    /// Team ID to assign the new application to
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
 }
 
 /// Cloud scan target for hosted/cloud applications

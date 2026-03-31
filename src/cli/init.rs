@@ -1,12 +1,13 @@
 //! Init command implementation
 
 use colored::Colorize;
-use dialoguer::{Password, Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, Password, Select, theme::ColorfulTheme};
 
 use crate::cli::args::GlobalOptions;
-use crate::client::{AuthApi, ListingApi, StackHawkClient};
+use crate::client::{AppApi, AuthApi, ListingApi, StackHawkClient};
 use crate::config::{ProfileConfig, ProfiledConfig};
 use crate::error::Result;
+use crate::git;
 
 /// Run the init command
 ///
@@ -117,5 +118,151 @@ pub async fn run(opts: &GlobalOptions) -> Result<()> {
     println!("  {} - Show configuration status", "hawkop status".cyan());
     println!("  {} - List organizations", "hawkop org list".cyan());
 
+    // ── Post-setup: detect git repo and offer to link ──────────────────
+    if let Some(org_id) = &profiled_config.get_profile(profile_name)?.org_id {
+        post_setup_repo_detection(&client, org_id).await;
+    }
+
     Ok(())
+}
+
+/// After init completes, check if the user is in a git repo and offer to
+/// create an app + link it. This drives API Discovery adoption by reducing
+/// the gap between "set up auth" and "first scan."
+async fn post_setup_repo_detection(client: &StackHawkClient, org_id: &str) {
+    let local_repo = match git::detect_local_repo() {
+        Some(info) => info,
+        None => return, // Not in a git repo — skip silently
+    };
+
+    println!();
+    println!("📂 Detected git repo: {}", local_repo.full_name().bold());
+
+    // Try to match against platform repos
+    let platform_match = match git::match_platform_repo(client, org_id, &local_repo).await {
+        Ok(Some(repo)) => Some(repo),
+        Ok(None) => None,
+        Err(e) => {
+            log::debug!("Failed to match platform repo: {}", e);
+            None
+        }
+    };
+
+    if let Some(ref repo) = platform_match {
+        // Repo exists in the platform
+        let app_count = repo.app_infos.len();
+        if app_count > 0 {
+            let app_names: Vec<String> = repo
+                .app_infos
+                .iter()
+                .filter_map(|ai| ai.app_name.clone())
+                .collect();
+            println!(
+                "  {} This repo is tracked in your attack surface with {} linked app(s): {}",
+                "✓".green(),
+                app_count,
+                if app_names.is_empty() {
+                    "(unnamed)".to_string()
+                } else {
+                    app_names.join(", ")
+                }
+            );
+        } else {
+            println!(
+                "  {} This repo is in your attack surface but has no linked apps.",
+                "ℹ".blue()
+            );
+            offer_create_and_link(client, org_id, &local_repo, repo).await;
+        }
+    } else {
+        // Repo not found in platform
+        println!(
+            "  {} This repo isn't in your attack surface yet.",
+            "ℹ".blue()
+        );
+        println!("  To start scanning, create an app and link it to this repo:");
+        println!(
+            "  → {} --name {} --env Development --repo {}",
+            "hawkop app create".cyan(),
+            local_repo.name,
+            local_repo.full_name()
+        );
+    }
+}
+
+/// Offer to create an app and link it to a platform repo that has no apps.
+async fn offer_create_and_link(
+    client: &StackHawkClient,
+    org_id: &str,
+    local_repo: &git::LocalRepoInfo,
+    platform_repo: &crate::client::models::Repository,
+) {
+    let create = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Create an app and link it to this repo?")
+        .default(true)
+        .interact_opt();
+
+    let confirmed = match create {
+        Ok(Some(true)) => true,
+        _ => return,
+    };
+
+    if !confirmed {
+        return;
+    }
+
+    // Use repo name as default app name
+    let app_name = &local_repo.name;
+    let request = crate::client::models::CreateApplicationRequest {
+        name: app_name.to_string(),
+        env: "Development".to_string(),
+        application_type: Some("STANDARD".to_string()),
+        host: None,
+        cloud_scan_target_url: None,
+        team_id: None,
+    };
+
+    println!("\n{}", "Creating application...".cyan());
+
+    let app = match client.create_app(org_id, request).await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("  {} Could not create application: {}", "⚠".yellow(), e);
+            return;
+        }
+    };
+
+    println!(
+        "  {} Application \"{}\" created (ID: {})",
+        "✓".green(),
+        app.name,
+        app.id
+    );
+
+    // Link to repo
+    let app_info = crate::client::models::RepoAppInfoWrite {
+        id: Some(app.id.clone()),
+        name: None,
+    };
+    match crate::cli::repo::link_app_to_repo(client, org_id, platform_repo, &app_info).await {
+        Ok(crate::cli::repo::LinkResult::Linked { repo_name, .. }) => {
+            println!("  {} Linked to repository \"{}\"", "✓".green(), repo_name);
+        }
+        Ok(crate::cli::repo::LinkResult::AlreadyLinked { .. }) => {
+            println!("  {} Already linked.", "ℹ".blue());
+        }
+        Err(e) => {
+            eprintln!("  {} Could not link to repository: {}", "⚠".yellow(), e);
+            eprintln!(
+                "  → hawkop repo link --app-id {} --repo {}",
+                app.id,
+                local_repo.full_name()
+            );
+            return;
+        }
+    }
+
+    println!();
+    println!("  App ID for stackhawk.yml: {}", app.id.bold());
+    println!("  → {} to run your first scan", "hawk scan".cyan());
 }

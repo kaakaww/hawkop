@@ -9,31 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Hosted scan control** - Start, stop, and monitor hosted scans from the CLI
-  - `run start --app <APP>` - Start a hosted scan with optional `--env`, `--config`, `--watch`
-  - `run stop --app <APP>` - Stop a running scan (with `--yes` to skip confirmation)
-  - `run status --app <APP>` - Check scan status with optional `--watch` auto-refresh
-- **Environment management** - Create, list, and manage application environments
-  - `env list --app <APP>` - List environments for an application
-  - `env create --app <APP> <NAME>` - Create a new environment
-  - `env delete --app <APP> <ENV>` - Delete an environment
-  - `env config --app <APP> <ENV>` - Get default YAML config for an environment
-- **Scan configuration CRUD** - Full lifecycle management for scan configs
-  - `config get <NAME>` - Download a stored configuration
-  - `config set <NAME> --file <FILE>` - Create or update a configuration
-  - `config delete <NAME>` - Delete a configuration
-  - `config rename <OLD> <NEW>` - Rename a configuration
-  - `config validate [NAME | --file FILE]` - Validate configuration YAML
-- **OAS extended commands** - Get spec content and view app mappings
-  - `oas get <ID>` - Download OpenAPI spec content with optional `--output` file
-  - `oas mappings --app <APP>` - List specs mapped to an application
-- **API coverage roadmap** (`docs/ROADMAP.md`) - Tracks path to 100% StackHawk API coverage (currently 60%)
-- **CLI command reference** (`docs/CLI_REFERENCE.md`) - Complete taxonomy of all commands, flags, and test coverage
-- **Pre-commit quality tooling** - Two-layer quality gate for all contributors
-  - Git hooks (`.githooks/`) for automatic pre-commit and pre-push checks
-  - `make setup-hooks` to install, `make check-test-coverage` to audit test gaps
-  - `/pre-commit` Claude Code command for intelligent checklist (docs, design review)
-- **Functional tests** for hosted scanning, environment, config, and OAS commands
+- **Application CRUD** — Full lifecycle management for applications
+  - `app create` — Create with `--name`, `--env`, `--type`, `--host`, `--team-id`
+  - `app create --repo` / `--repo-id` — Create and link to a repository in one step
+  - `app get` — Get application details by ID or `--name`
+  - `app update` — Rename an application
+  - `app delete` — Delete with confirmation (`--yes` to skip)
+- **AI-optimized scan output** — `scan get --detail full` produces a single self-contained JSON document with all findings, evidence, HTTP messages, and remediation advice for agentic workflows
+- **Repository linking** — Connect applications to repositories for API Discovery
+  - `repo link` — Additive link with read-merge-write (preserves existing mappings)
+  - `repo set-apps` — Full replacement of app mappings for a repository
+- **Git-aware app creation** — Detects local git repository and suggests a targeted `repo link` command when creating apps without `--repo`
+- **Enhanced init flow** — After setup, detects git repo, matches against StackHawk platform, and offers to create app + link for API Discovery onboarding
+- **Hosted scan control** — Start, stop, and monitor hosted scans from the CLI
+  - `run start --app <APP>` — Start a hosted scan with optional `--env`, `--config`, `--watch`
+  - `run stop --app <APP>` — Stop a running scan (with `--yes` to skip confirmation)
+  - `run status --app <APP>` — Check scan status with optional `--watch` auto-refresh
+- **Environment management** — Create, list, and manage application environments
+  - `env list --app <APP>`, `env create`, `env delete`, `env config`
+- **Scan configuration CRUD** — Full lifecycle management for scan configs
+  - `config get`, `config set`, `config delete`, `config rename`, `config validate`
+- **OAS extended commands** — `oas get` and `oas mappings --app`
+- **Dynamic shell completions** for app IDs, repo IDs, and repo names
+- **OpenAPI spec refresh** — Updated `stackhawk-openapi.json` for 2026-03 API changes
+- **Claude Code development hooks** — Automated workflow enforcement and quality reminders
+- **API coverage roadmap** and **CLI command reference** documentation
+
+### Changed
+
+- `repo link` refactored to use shared `link_app_to_repo()` helper — eliminates duplicated read-merge-write logic across `repo link`, `app create --repo`, and `init` post-setup
+
+### Fixed
+
+- **Functional test safety** — `HAWKOP_PROFILE` is now required to run functional tests, preventing accidental runs against the default (production) profile
+- **Org config corruption** — Fixed `test_org_set_and_get_roundtrip` broken restore that silently left config pointing to wrong org (JSON path didn't account for `{data}` wrapper)
+- **CLI test isolation** — Integration tests now remove `HAWKOP_PROFILE` from environment, preventing failures when the user's shell has it set
 
 ## [0.5.1] - 2026-01-23
 

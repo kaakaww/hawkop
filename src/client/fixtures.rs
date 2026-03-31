@@ -160,6 +160,7 @@ impl ApplicationBuilder {
             organization_id: self.organization_id,
             application_type: self.application_type,
             cloud_scan_target: None,
+            env_id: None,
         }
     }
 }

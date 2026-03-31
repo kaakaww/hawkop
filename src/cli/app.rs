@@ -1,12 +1,15 @@
 //! Application management commands
 
+use colored::Colorize;
 use log::debug;
 
+use crate::cli::OutputFormat;
 use crate::cli::args::GlobalOptions;
 use crate::cli::{CommandContext, PaginationArgs};
-use crate::client::models::Application;
-use crate::client::{ListingApi, PaginationParams, fetch_remaining_pages};
+use crate::client::models::{Application, CreateApplicationRequest};
+use crate::client::{AppApi, ListingApi, PaginationParams, fetch_remaining_pages};
 use crate::error::Result;
+use crate::git;
 use crate::models::AppDisplay;
 use crate::output::Formattable;
 
@@ -104,6 +107,426 @@ pub async fn list(
     Ok(())
 }
 
+/// Run the app create command
+#[allow(clippy::too_many_arguments)]
+pub async fn create(
+    opts: &GlobalOptions,
+    name: &str,
+    env: &str,
+    app_type: &str,
+    host: Option<&str>,
+    cloud_scan_target_url: Option<&str>,
+    team_id: Option<&str>,
+    repo_name: Option<&str>,
+    repo_id: Option<&str>,
+    dry_run: bool,
+) -> Result<()> {
+    let ctx = CommandContext::new(opts).await?;
+    let org_id = ctx.require_org_id()?;
+
+    // Validate name
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Application name cannot be empty.".to_string(),
+        ));
+    }
+
+    // Normalize and validate type
+    let app_type_upper = app_type.to_uppercase();
+    if app_type_upper != "STANDARD" && app_type_upper != "CLOUD" {
+        return Err(crate::error::Error::Other(format!(
+            "Invalid application type: \"{}\". Must be \"standard\" or \"cloud\".",
+            app_type
+        )));
+    }
+
+    // Cloud apps require a cloud-url
+    if app_type_upper == "CLOUD" && cloud_scan_target_url.is_none() {
+        return Err(crate::error::Error::Other(
+            "Cloud applications require --cloud-url <URL>.\n\
+             → Example: hawkop app create --name my-api --type cloud --cloud-url https://api.example.com"
+                .to_string(),
+        ));
+    }
+
+    // Validate env
+    let env = env.trim();
+    if env.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Environment name cannot be empty.".to_string(),
+        ));
+    }
+
+    let wants_repo_link = repo_name.is_some() || repo_id.is_some();
+
+    if dry_run {
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!("Would create application:");
+        eprintln!("  Name: {}", name.bold());
+        eprintln!("  Environment: {}", env);
+        eprintln!("  Type: {}", app_type_upper);
+        if let Some(h) = host {
+            eprintln!("  Host: {}", h);
+        }
+        if let Some(url) = cloud_scan_target_url {
+            eprintln!("  Cloud URL: {}", url);
+        }
+        if let Some(tid) = team_id {
+            eprintln!("  Team: {}", tid);
+        }
+        if let Some(rn) = repo_name {
+            eprintln!("  Link to repo: {} (by name)", rn);
+        }
+        if let Some(ri) = repo_id {
+            eprintln!("  Link to repo: {} (by ID)", ri);
+        }
+        return Ok(());
+    }
+
+    let request = CreateApplicationRequest {
+        name: name.to_string(),
+        env: env.to_string(),
+        application_type: Some(app_type_upper),
+        host: host.map(|h| h.to_string()),
+        cloud_scan_target_url: cloud_scan_target_url.map(|u| u.to_string()),
+        team_id: team_id.map(|t| t.to_string()),
+    };
+
+    debug!("Creating application: {:?}", request);
+
+    let app = ctx.client.create_app(org_id, request).await?;
+
+    // Attempt repo linking if requested (best-effort: app exists even if this fails)
+    let link_result = if wants_repo_link {
+        match try_link_repo(&*ctx.client, org_id, &app.id, repo_name, repo_id).await {
+            Ok(result) => Some(Ok(result)),
+            Err(e) => Some(Err(e)),
+        }
+    } else {
+        None
+    };
+
+    // Detect local git repo for smart nudge (Layer 1 — no API call, fast)
+    let detected_repo = if !wants_repo_link {
+        git::detect_local_repo()
+    } else {
+        None
+    };
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let mut meta = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            if let Some(ref repo) = detected_repo {
+                meta["detected_repo"] = serde_json::json!({
+                    "provider": repo.provider.to_string(),
+                    "owner": &repo.owner,
+                    "name": &repo.name,
+                });
+            }
+
+            let repo_link_json = match &link_result {
+                Some(Ok(crate::cli::repo::LinkResult::Linked {
+                    repo_id,
+                    repo_name,
+                    total_mappings,
+                })) => serde_json::json!({
+                    "status": "linked",
+                    "repo_id": repo_id,
+                    "repo_name": repo_name,
+                    "total_mappings": total_mappings,
+                }),
+                Some(Ok(crate::cli::repo::LinkResult::AlreadyLinked { repo_id, app_id })) => {
+                    serde_json::json!({
+                        "status": "already_linked",
+                        "repo_id": repo_id,
+                        "app_id": app_id,
+                    })
+                }
+                Some(Err(e)) => serde_json::json!({
+                    "status": "failed",
+                    "error": e.to_string(),
+                }),
+                None => serde_json::Value::Null,
+            };
+
+            let data = if wants_repo_link {
+                serde_json::json!({
+                    "application": app,
+                    "repo_link": repo_link_json,
+                })
+            } else {
+                serde_json::to_value(&app)?
+            };
+
+            let output = serde_json::json!({
+                "data": data,
+                "meta": meta
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            // stdout: just the app ID (pipeable)
+            println!("{}", app.id);
+            // stderr: human-friendly confirmation + next steps
+            eprintln!(
+                "{} Application \"{}\" created (ID: {})",
+                "✓".green(),
+                app.name,
+                app.id
+            );
+            if let Some(ref env_name) = app.env {
+                eprintln!("  Environment: {}", env_name);
+            }
+
+            // Report repo link result
+            match &link_result {
+                Some(Ok(crate::cli::repo::LinkResult::Linked {
+                    repo_name, repo_id, ..
+                })) => {
+                    eprintln!(
+                        "{} Linked to repository \"{}\" ({})",
+                        "✓".green(),
+                        repo_name,
+                        repo_id
+                    );
+                }
+                Some(Ok(crate::cli::repo::LinkResult::AlreadyLinked { app_id, .. })) => {
+                    eprintln!(
+                        "{} App {} is already linked to this repository.",
+                        "ℹ".blue(),
+                        app_id
+                    );
+                }
+                Some(Err(e)) => {
+                    eprintln!();
+                    eprintln!("{} Could not link to repository: {}", "⚠".yellow(), e);
+                    eprintln!("→ hawkop repo link --app-id {} --repo <name>", app.id);
+                }
+                None => {}
+            }
+
+            eprintln!();
+
+            // Smart nudge: suggest repo link if not already linking
+            if link_result.is_none() {
+                if let Some(ref repo) = detected_repo {
+                    eprintln!("💡 Detected git repo: {}", repo.full_name());
+                    eprintln!(
+                        "→ hawkop repo link --repo {} --app-id {}",
+                        repo.full_name(),
+                        app.id
+                    );
+                } else {
+                    eprintln!("→ hawkop repo link --repo-id <uuid> --app-id {}", app.id);
+                }
+            }
+            eprintln!("→ hawkop app list");
+        }
+    }
+
+    Ok(())
+}
+
+/// Attempt to resolve and link a repo to an app. Used by `app create --repo`.
+async fn try_link_repo(
+    client: &(impl crate::client::ListingApi + crate::client::RepoApi),
+    org_id: &str,
+    app_id: &str,
+    repo_name: Option<&str>,
+    repo_id: Option<&str>,
+) -> Result<crate::cli::repo::LinkResult> {
+    use crate::client::models::RepoAppInfoWrite;
+    let resolved = crate::cli::repo::resolve_repo(client, org_id, repo_id, repo_name).await?;
+    let app_info = RepoAppInfoWrite {
+        id: Some(app_id.to_string()),
+        name: None,
+    };
+    crate::cli::repo::link_app_to_repo(client, org_id, &resolved, &app_info).await
+}
+
+/// Run the app get command
+pub async fn get(opts: &GlobalOptions, app_id: Option<&str>, name: Option<&str>) -> Result<()> {
+    use crate::cli::CommandContext;
+    use crate::models::AppDetailDisplay;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    let app = match (app_id, name) {
+        (Some(id), None) => ctx.client.get_app(id).await?,
+        (None, Some(name)) => {
+            let org_id = ctx.require_org_id()?;
+            let apps = ctx.client.list_apps(org_id, None).await?;
+            let matches: Vec<_> = apps
+                .into_iter()
+                .filter(|a| a.name.eq_ignore_ascii_case(name))
+                .collect();
+
+            match matches.len() {
+                0 => {
+                    return Err(crate::error::Error::Other(format!(
+                        "No application found matching \"{}\".\n→ hawkop app list",
+                        name
+                    )));
+                }
+                1 => matches.into_iter().next().unwrap(),
+                n => {
+                    return Err(crate::error::Error::Other(format!(
+                        "Ambiguous: {} applications match \"{}\". Use app ID instead.\n→ hawkop app list -o json | jq '.data[] | select(.name==\"{}\") | .id'",
+                        n, name, name
+                    )));
+                }
+            }
+        }
+        _ => {
+            return Err(crate::error::Error::Other(
+                "Specify an app ID or --name.\n\
+                 → hawkop app get <app-id>\n\
+                 → hawkop app get --name my-api"
+                    .to_string(),
+            ));
+        }
+    };
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": app,
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            let display = AppDetailDisplay::from(&app);
+            vec![display].print(ctx.format)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the app update command
+pub async fn update(opts: &GlobalOptions, app_id: &str, name: &str, dry_run: bool) -> Result<()> {
+    use crate::cli::CommandContext;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(crate::error::Error::Other(
+            "Application name cannot be empty.".to_string(),
+        ));
+    }
+
+    if dry_run {
+        // Fetch current app for display
+        let current = ctx.client.get_app(app_id).await?;
+        eprintln!("{}", "DRY RUN - no changes will be made".yellow());
+        eprintln!();
+        eprintln!("Would rename application:");
+        eprintln!("  ID: {}", app_id);
+        eprintln!("  Current name: \"{}\"", current.name);
+        eprintln!("  New name: \"{}\"", name.bold());
+        return Ok(());
+    }
+
+    debug!("Updating application {}: name -> \"{}\"", app_id, name);
+
+    let app = ctx.client.update_app(app_id, name).await?;
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": app,
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            eprintln!(
+                "{} Application renamed to \"{}\" (ID: {})",
+                "✓".green(),
+                app.name,
+                app.id
+            );
+            eprintln!();
+            eprintln!("→ hawkop app get {}", app.id);
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the app delete command
+pub async fn delete(opts: &GlobalOptions, app_id: &str, yes: bool) -> Result<()> {
+    use crate::cli::CommandContext;
+
+    let ctx = CommandContext::new(opts).await?;
+
+    // Fetch app details for confirmation display
+    let app = ctx.client.get_app(app_id).await?;
+
+    if !yes {
+        eprintln!(
+            "{} This will permanently delete application \"{}\" (ID: {}).",
+            "⚠".yellow(),
+            app.name.bold(),
+            app_id
+        );
+        eprintln!("  All environments and scan results will be removed.");
+
+        use dialoguer::Confirm;
+        let confirmed = Confirm::new()
+            .with_prompt("Continue?")
+            .default(false)
+            .interact()?;
+
+        if !confirmed {
+            eprintln!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    debug!("Deleting application: {} ({})", app.name, app_id);
+
+    ctx.client.delete_app(app_id).await?;
+
+    match ctx.format {
+        OutputFormat::Json => {
+            let output = serde_json::json!({
+                "data": { "deleted": true, "applicationId": app_id },
+                "meta": {
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        _ => {
+            eprintln!(
+                "{} Deleted application \"{}\" (ID: {})",
+                "✓".green(),
+                app.name,
+                app_id
+            );
+            eprintln!();
+            eprintln!("→ hawkop app list");
+        }
+    }
+
+    Ok(())
+}
+
 /// Filter applications by type (cloud or standard)
 fn filter_by_type(apps: Vec<Application>, app_type: Option<&str>) -> Vec<Application> {
     match app_type {
@@ -143,6 +566,7 @@ mod tests {
             organization_id: Some("org-123".to_string()),
             application_type: app_type.map(|t| t.to_string()),
             cloud_scan_target: None,
+            env_id: None,
         }
     }
 

@@ -392,6 +392,7 @@ fn get_new_findings(scan: &ScanResult) -> (u32, u32, u32) {
 /// - `scan get <id> --plugin-id <p>` - Plugin detail with paths
 /// - `scan get <id> --uri-id <u>` - URI detail with evidence
 /// - `scan get <id> --uri-id <u> -m` - URI detail with HTTP message
+/// - `scan get --detail full -o json` - Complete findings for AI agents
 #[allow(clippy::too_many_arguments)]
 pub async fn get(
     opts: &GlobalOptions,
@@ -400,6 +401,9 @@ pub async fn get(
     app: Option<&str>,
     app_id: Option<&str>,
     env: Option<&str>,
+    detail: Option<&str>,
+    max_findings: usize,
+    max_body_size: usize,
     plugin_id: Option<&str>,
     uri_id: Option<&str>,
     message: bool,
@@ -435,9 +439,26 @@ pub async fn get(
     };
 
     debug!(
-        "Scan get: id={}, plugin={:?}, uri={:?}, message={}",
-        resolved_id, plugin_id, uri_id, message
+        "Scan get: id={}, detail={:?}, plugin={:?}, uri={:?}, message={}",
+        resolved_id, detail, plugin_id, uri_id, message
     );
+
+    // Route to --detail full handler if requested
+    if let Some(detail_level) = detail {
+        if detail_level.eq_ignore_ascii_case("full") {
+            // Warn if drill-down flags are combined with --detail full (they're ignored)
+            if plugin_id.is_some() || uri_id.is_some() || message {
+                eprintln!("Warning: --plugin-id, --uri-id, and -m are ignored with --detail full");
+            }
+            return show_full_detail(&ctx, org_id, &resolved_id, max_findings, max_body_size).await;
+        } else {
+            return Err(crate::error::ApiError::BadRequest(format!(
+                "Unknown detail level '{}'. Supported: full",
+                detail_level
+            ))
+            .into());
+        }
+    }
 
     // Determine detail level based on flags
     match (plugin_id, uri_id, message) {
@@ -843,6 +864,482 @@ fn format_findings_summary(result: &ScanResult) -> (String, String) {
     );
 
     (new_summary, triaged_summary)
+}
+
+// ============================================================================
+// Full Detail Mode (--detail full)
+// ============================================================================
+
+/// Show complete scan detail with all findings, HTTP messages, and remediation advice.
+///
+/// Orchestrates parallel API calls to assemble a single self-contained JSON document:
+/// 1. get_scan() — scan metadata
+/// 2. list_scan_alerts() — plugin-level summaries
+/// 3. get_alert_with_paths() — per-plugin paths (parallel)
+/// 4. get_alert_message() — per-path HTTP messages (parallel)
+/// 5. list_org_findings() — remediation advice enrichment (parallel with #3)
+async fn show_full_detail(
+    ctx: &CommandContext,
+    org_id: &str,
+    scan_id: &str,
+    max_findings: usize,
+    max_body_size: usize,
+) -> Result<()> {
+    use std::collections::HashMap;
+    use std::time::Instant;
+
+    use crate::models::display::scan_full::{
+        FindingFull, FindingsSummary, HttpMessage, OutputMeta, PathFull, ScanFullDetail, ScanInfo,
+        SeverityCounts, StatusCounts,
+    };
+
+    let start = Instant::now();
+    let mut api_calls: usize = 0;
+    let mut bodies_truncated = false;
+
+    // Step 1: Fetch scan metadata + alerts in parallel
+    eprintln!("Fetching scan details...");
+
+    let (scan_result, alerts) = tokio::try_join!(
+        ctx.client.get_scan(org_id, scan_id),
+        ctx.client.list_scan_alerts(scan_id, None),
+    )?;
+    api_calls += 2;
+
+    let app_id = scan_result.scan.application_id.clone();
+
+    // Step 2: Fetch per-plugin paths AND org findings enrichment in parallel
+    //
+    // Sort alerts by severity (High → Medium → Low) and limit to max_findings plugins
+    let mut sorted_alerts = alerts;
+    sorted_alerts.sort_by(|a, b| {
+        let severity_order = |s: &str| match s.to_uppercase().as_str() {
+            "HIGH" => 0,
+            "MEDIUM" => 1,
+            "LOW" => 2,
+            _ => 3,
+        };
+        severity_order(&a.severity)
+            .cmp(&severity_order(&b.severity))
+            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+    });
+
+    let total_alerts = sorted_alerts.len();
+    let findings_omitted = if total_alerts > max_findings {
+        Some(total_alerts - max_findings)
+    } else {
+        None
+    };
+    let limited_alerts: Vec<_> = sorted_alerts.into_iter().take(max_findings).collect();
+
+    // Fetch paths per plugin in parallel + org findings enrichment concurrently
+    let plugin_ids: Vec<String> = limited_alerts.iter().map(|a| a.plugin_id.clone()).collect();
+
+    eprintln!(
+        "Fetching {} plugin details and remediation data...",
+        plugin_ids.len()
+    );
+
+    // Use FuturesUnordered for bounded concurrency on path fetches
+    use futures::stream::{FuturesUnordered, StreamExt};
+
+    let path_futures: FuturesUnordered<_> = plugin_ids
+        .iter()
+        .map(|pid| {
+            let client = ctx.client.clone();
+            let sid = scan_id.to_string();
+            let pid = pid.clone();
+            async move {
+                let result = client.get_alert_with_paths(&sid, &pid, None).await;
+                (pid, result)
+            }
+        })
+        .collect();
+
+    // Fetch org findings in parallel (for remediation advice enrichment)
+    let app_ids_filter = vec![app_id.clone()];
+    let findings_future = ctx
+        .client
+        .list_org_findings(org_id, &app_ids_filter, Some(500), None);
+
+    // Collect path results and findings concurrently
+    let (path_results, findings_response): (Vec<_>, _) = tokio::join!(
+        async {
+            let results: Vec<_> = path_futures.collect().await;
+            results
+        },
+        findings_future,
+    );
+
+    api_calls += plugin_ids.len() + 1; // N path calls + 1 findings call
+
+    // Build remediation advice lookup from org findings (keyed by finding_hash)
+    let remediation_map: HashMap<String, &crate::client::models::CurrentFindingRow> =
+        if let Ok(ref resp) = findings_response {
+            resp.findings
+                .iter()
+                .filter_map(|f| f.finding_hash.as_ref().map(|hash| (hash.clone(), f)))
+                .collect()
+        } else {
+            debug!(
+                "Failed to fetch org findings for enrichment: {:?}",
+                findings_response.err()
+            );
+            HashMap::new()
+        };
+
+    // Step 3: Collect all URI IDs that need HTTP messages fetched
+    let mut uri_msg_requests: Vec<(String, String, String)> = Vec::new(); // (plugin_id, uri_id, msg_id)
+    let mut alert_paths: HashMap<String, crate::client::models::AlertResponse> = HashMap::new();
+
+    for (pid, result) in &path_results {
+        match result {
+            Ok(alert_resp) => {
+                for uri in &alert_resp.application_scan_alert_uris {
+                    uri_msg_requests.push((
+                        pid.clone(),
+                        uri.alert_uri_id.clone(),
+                        uri.msg_id.clone(),
+                    ));
+                }
+                alert_paths.insert(pid.clone(), alert_resp.clone());
+            }
+            Err(e) => {
+                debug!("Failed to fetch paths for plugin {}: {}", pid, e);
+            }
+        }
+    }
+
+    // Step 4: Fetch HTTP messages in parallel (bounded concurrency)
+    let total_messages = uri_msg_requests.len();
+    if total_messages > 0 {
+        eprintln!("Fetching {} HTTP messages...", total_messages);
+    }
+
+    let msg_futures: FuturesUnordered<_> = uri_msg_requests
+        .iter()
+        .map(|(_, uri_id, msg_id)| {
+            let client = ctx.client.clone();
+            let sid = scan_id.to_string();
+            let uid = uri_id.clone();
+            let mid = msg_id.clone();
+            async move {
+                let result = client.get_alert_message(&sid, &uid, &mid, true).await;
+                (uid, result)
+            }
+        })
+        .collect();
+
+    let msg_results: Vec<_> = msg_futures.collect().await;
+    api_calls += total_messages;
+
+    // Build message lookup (keyed by uri_id)
+    let msg_map: HashMap<String, crate::client::models::AlertMsgResponse> = msg_results
+        .into_iter()
+        .filter_map(|(uri_id, result)| match result {
+            Ok(msg) => Some((uri_id, msg)),
+            Err(e) => {
+                debug!("Failed to fetch message for uri {}: {}", uri_id, e);
+                None
+            }
+        })
+        .collect();
+
+    // Step 5: Assemble the composite output document
+    eprintln!("Assembling output...");
+
+    // Build ScanInfo from scan_result
+    let scan_timestamp = &scan_result.scan.timestamp;
+    let completed_at = if !scan_timestamp.is_empty() {
+        // Convert epoch millis to ISO 8601
+        scan_timestamp
+            .parse::<i64>()
+            .ok()
+            .map(|ms| {
+                chrono::DateTime::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            })
+            .filter(|s| !s.is_empty())
+    } else {
+        None
+    };
+
+    let duration_seconds = scan_result
+        .scan_duration
+        .as_ref()
+        .and_then(|d| d.parse::<f64>().ok());
+
+    // Extract policy name from metadata
+    let policy = scan_result
+        .metadata
+        .as_ref()
+        .and_then(|m| m.tags.get("policyDisplayName").cloned())
+        .or_else(|| {
+            scan_result
+                .metadata
+                .as_ref()
+                .and_then(|m| m.tags.get("policyName").cloned())
+        })
+        .or_else(|| scan_result.policy_name.clone())
+        .filter(|p| !p.is_empty());
+
+    // Extract user from metadata
+    let user_id = scan_result
+        .metadata
+        .as_ref()
+        .and_then(|m| m.tags.get("userId").cloned())
+        .or_else(|| scan_result.scan.external_user_id.clone())
+        .filter(|id| !id.is_empty());
+    let user = if let Some(ref uid) = user_id {
+        lookup_user_display(ctx, org_id, uid).await
+    } else {
+        None
+    };
+    if user.is_some() {
+        api_calls += 1;
+    }
+
+    // Build tags map (deduplicated, filtered)
+    let tags: HashMap<String, String> = {
+        let mut seen = std::collections::HashSet::new();
+        scan_result
+            .tags
+            .iter()
+            .filter(|tag| {
+                seen.insert(tag.name.clone())
+                    && !tag.value.is_empty()
+                    && !(tag.value.contains("${") && tag.value.contains('}'))
+            })
+            .map(|tag| (tag.name.clone(), tag.value.clone()))
+            .collect()
+    };
+
+    let scan_info = ScanInfo {
+        id: scan_result.scan.id.clone(),
+        application_id: app_id.clone(),
+        application_name: scan_result.scan.application_name.clone(),
+        environment: scan_result.scan.env.clone(),
+        host: scan_result.app_host.clone(),
+        status: scan_result.scan.status.clone(),
+        completed_at,
+        duration_seconds,
+        hawkscan_version: scan_result.scan.version.clone(),
+        policy,
+        user,
+        tags,
+    };
+
+    // Build findings
+    let mut all_findings: Vec<FindingFull> = Vec::new();
+    let mut total_paths_count: usize = 0;
+    let mut severity_counts = SeverityCounts::default();
+    let mut status_counts = StatusCounts::default();
+
+    // Truncation helper
+    let truncate_body = |body: Option<&String>| -> (Option<String>, bool) {
+        match body {
+            Some(b) if b.len() > max_body_size => {
+                let truncated = format!(
+                    "{}... [truncated, {} bytes total]",
+                    &b[..max_body_size],
+                    b.len()
+                );
+                (Some(truncated), true)
+            }
+            Some(b) => (Some(b.clone()), false),
+            None => (None, false),
+        }
+    };
+
+    for alert in &limited_alerts {
+        let alert_resp = alert_paths.get(&alert.plugin_id);
+
+        // Build paths for this finding
+        let mut paths: Vec<PathFull> = Vec::new();
+
+        if let Some(resp) = alert_resp {
+            for uri in &resp.application_scan_alert_uris {
+                // Look up enrichment data from findings report
+                let enrichment = uri
+                    .finding_hash
+                    .as_ref()
+                    .and_then(|h| remediation_map.get(h));
+
+                // Look up HTTP message
+                let msg = msg_map.get(&uri.alert_uri_id);
+
+                let (request, response) = if let Some(m) = msg {
+                    let (req_body, req_trunc) = truncate_body(m.scan_message.request_body.as_ref());
+                    let (resp_body, resp_trunc) =
+                        truncate_body(m.scan_message.response_body.as_ref());
+                    if req_trunc || resp_trunc {
+                        bodies_truncated = true;
+                    }
+                    (
+                        Some(HttpMessage {
+                            headers: m.scan_message.request_header.clone(),
+                            body: req_body,
+                            truncated: req_trunc,
+                        }),
+                        Some(HttpMessage {
+                            headers: m.scan_message.response_header.clone(),
+                            body: resp_body,
+                            truncated: resp_trunc,
+                        }),
+                    )
+                } else {
+                    (None, None)
+                };
+
+                // Evidence from message takes precedence, then from alert msg response
+                let evidence = msg
+                    .and_then(|m| m.evidence.clone())
+                    .or_else(|| enrichment.and_then(|e| e.finding_evidence.clone()));
+
+                let param = msg.and_then(|m| m.param.clone());
+                let other_info = msg.and_then(|m| m.other_info.clone());
+                let validation_command = msg.and_then(|m| m.validation_command.clone());
+
+                let first_seen = enrichment.and_then(|e| e.finding_first_seen_iso8601.clone());
+                let last_seen = enrichment.and_then(|e| e.finding_last_seen_iso8601.clone());
+
+                // Track status counts
+                match uri.status.to_uppercase().as_str() {
+                    "UNKNOWN" | "" => status_counts.new += 1,
+                    "PROMOTED" | "ASSIGNED" => status_counts.assigned += 1,
+                    "RISK_ACCEPTED" => status_counts.accepted += 1,
+                    "FALSE_POSITIVE" => status_counts.false_positive += 1,
+                    _ => status_counts.new += 1,
+                }
+
+                paths.push(PathFull {
+                    uri_id: uri.alert_uri_id.clone(),
+                    finding_hash: uri.finding_hash.clone(),
+                    method: uri.request_method.clone(),
+                    uri: uri.uri.clone(),
+                    status: uri.status.clone(),
+                    triage_note: uri.matched_rule_note.clone(),
+                    evidence,
+                    param,
+                    other_info,
+                    validation_command,
+                    first_seen,
+                    last_seen,
+                    request,
+                    response,
+                });
+            }
+        }
+
+        total_paths_count += paths.len();
+
+        // Track severity counts
+        match alert.severity.to_uppercase().as_str() {
+            "HIGH" => severity_counts.high += paths.len(),
+            "MEDIUM" => severity_counts.medium += paths.len(),
+            "LOW" => severity_counts.low += paths.len(),
+            "INFORMATIONAL" => severity_counts.informational += paths.len(),
+            _ => {}
+        }
+
+        // Get remediation advice from any path's enrichment data
+        let remediation_advice = paths
+            .iter()
+            .filter_map(|p| p.finding_hash.as_ref())
+            .find_map(|hash| {
+                remediation_map
+                    .get(hash)
+                    .and_then(|f| f.remediation_advice.clone())
+            });
+
+        all_findings.push(FindingFull {
+            plugin_id: alert.plugin_id.clone(),
+            plugin_name: alert.name.clone(),
+            severity: alert.severity.clone(),
+            cwe_id: alert.cwe_id.clone(),
+            description: alert.description.clone(),
+            category: alert_resp.and_then(|r| r.category.clone()),
+            references: alert.references.clone(),
+            cheatsheet: alert_resp.and_then(|r| r.cheatsheet.clone()),
+            remediation_advice,
+            total_paths: paths.len(),
+            status_summary: None,
+            paths,
+        });
+    }
+
+    let summary = FindingsSummary {
+        total_findings: total_paths_count,
+        by_severity: severity_counts,
+        by_status: status_counts,
+        urls_scanned: scan_result.url_count,
+    };
+
+    let meta = OutputMeta {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        hawkop_version: env!("CARGO_PKG_VERSION").to_string(),
+        api_calls_made: api_calls,
+        fetch_duration_ms: start.elapsed().as_millis() as u64,
+        findings_omitted,
+        bodies_truncated,
+    };
+
+    let full_detail = ScanFullDetail {
+        schema_version: "1.0".to_string(),
+        scan: scan_info,
+        summary,
+        findings: all_findings,
+        meta,
+    };
+
+    // Output
+    match ctx.format {
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&full_detail)?;
+            println!("{}", json);
+        }
+        OutputFormat::Pretty | OutputFormat::Table => {
+            // For pretty/table, output JSON anyway (this is a machine-readable format)
+            // but add a human-friendly header to stderr
+            eprintln!(
+                "Scan: {} | App: {} | Env: {}",
+                full_detail.scan.id,
+                full_detail.scan.application_name,
+                full_detail.scan.environment
+            );
+            eprintln!(
+                "Findings: {} total ({} high, {} medium, {} low)",
+                full_detail.summary.total_findings,
+                full_detail.summary.by_severity.high,
+                full_detail.summary.by_severity.medium,
+                full_detail.summary.by_severity.low,
+            );
+            if let Some(omitted) = full_detail.meta.findings_omitted {
+                eprintln!(
+                    "Note: {} additional findings omitted (use --max-findings to increase)",
+                    omitted
+                );
+            }
+            let json = serde_json::to_string_pretty(&full_detail)?;
+            println!("{}", json);
+            eprintln!();
+            eprintln!("→ Tip: use --format json to suppress this header");
+        }
+    }
+
+    // Size warning to stderr
+    let output_size = serde_json::to_string(&full_detail)
+        .map(|s| s.len())
+        .unwrap_or(0);
+    if output_size > 1_048_576 {
+        eprintln!(
+            "Warning: output is {:.1}MB. Consider --max-findings or --max-body-size to reduce.",
+            output_size as f64 / 1_048_576.0
+        );
+    }
+
+    Ok(())
 }
 
 /// Show alert detail with paths (scan get <id> --plugin-id <plugin>)

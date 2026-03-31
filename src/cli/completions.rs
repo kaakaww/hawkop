@@ -882,3 +882,226 @@ pub fn team_name_candidates() -> ArgValueCandidates {
 pub fn user_email_candidates() -> ArgValueCandidates {
     ArgValueCandidates::new(complete_user_emails)
 }
+
+// ─── App ID completions ──────────────────────────────────────────────────
+
+/// Complete application IDs with name/env as help text.
+pub fn complete_app_ids() -> Vec<CompletionCandidate> {
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_app_ids", None, Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    let Some((_, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_apps(org_id, None)).await
+    });
+
+    let apps = match result {
+        Ok(Ok(apps)) => apps,
+        _ => return vec![],
+    };
+
+    let completion_data: Vec<(String, String)> = apps
+        .into_iter()
+        .take(MAX_COMPLETIONS)
+        .map(|app| {
+            let help = format!("{} | {}", app.name, app.env.as_deref().unwrap_or("--"));
+            (app.id, help)
+        })
+        .collect();
+
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "completions",
+            Some(org_id),
+            CacheTtl::APPS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+        .collect()
+}
+
+/// Create completion candidates for app IDs.
+pub fn app_id_candidates() -> ArgValueCandidates {
+    ArgValueCandidates::new(complete_app_ids)
+}
+
+// ─── Repo completions ────────────────────────────────────────────────────
+
+/// Complete repository IDs with name as help text.
+pub fn complete_repo_ids() -> Vec<CompletionCandidate> {
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_repo_ids", None, Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    let Some((_, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_repos(org_id, None)).await
+    });
+
+    let repos = match result {
+        Ok(Ok(repos)) => repos,
+        _ => return vec![],
+    };
+
+    let completion_data: Vec<(String, String)> = repos
+        .into_iter()
+        .filter_map(|r| {
+            let id = r.id?;
+            let help = format!("{} | {} apps", r.name, r.app_infos.len());
+            Some((id, help))
+        })
+        .take(MAX_COMPLETIONS)
+        .collect();
+
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "completions",
+            Some(org_id),
+            CacheTtl::REPOS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(id, help)| CompletionCandidate::new(id).help(Some(help.into())))
+        .collect()
+}
+
+/// Complete repository names with provider info as help text.
+pub fn complete_repo_names() -> Vec<CompletionCandidate> {
+    let config = match Config::load().ok() {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    let Some(org_id) = config.org_id.as_ref() else {
+        return vec![];
+    };
+
+    let cache = completion_cache();
+    let cache_key = cache_key("complete_repo_names", None, Some(org_id), &[]);
+
+    if let Some(ref c) = cache {
+        let cached: Option<Vec<(String, String)>> = get_cached(c, &cache_key);
+        if let Some(data) = cached {
+            return data
+                .into_iter()
+                .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
+                .collect();
+        }
+    }
+
+    let Some((_, client)) = completion_context() else {
+        return vec![];
+    };
+
+    let Some(rt) = blocking_runtime() else {
+        return vec![];
+    };
+
+    let result = rt.block_on(async {
+        tokio::time::timeout(COMPLETION_TIMEOUT, client.list_repos(org_id, None)).await
+    });
+
+    let repos = match result {
+        Ok(Ok(repos)) => repos,
+        _ => return vec![],
+    };
+
+    let completion_data: Vec<(String, String)> = repos
+        .into_iter()
+        .take(MAX_COMPLETIONS)
+        .map(|r| {
+            let provider = r.provider_org_name.as_deref().unwrap_or("--");
+            let source = r.repo_source.as_deref().unwrap_or("--");
+            let help = format!("{} | {}", provider, source);
+            (r.name, help)
+        })
+        .collect();
+
+    if let Some(ref c) = cache {
+        set_cached(
+            c,
+            &cache_key,
+            &completion_data,
+            "completions",
+            Some(org_id),
+            CacheTtl::REPOS,
+        );
+    }
+
+    completion_data
+        .into_iter()
+        .map(|(name, help)| CompletionCandidate::new(name).help(Some(help.into())))
+        .collect()
+}
+
+/// Create completion candidates for repo IDs.
+pub fn repo_id_candidates() -> ArgValueCandidates {
+    ArgValueCandidates::new(complete_repo_ids)
+}
+
+/// Create completion candidates for repo names.
+pub fn repo_name_candidates() -> ArgValueCandidates {
+    ArgValueCandidates::new(complete_repo_names)
+}

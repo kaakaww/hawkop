@@ -61,6 +61,69 @@ impl From<&Application> for AppDisplay {
     }
 }
 
+/// Detailed application display for get/create/update responses.
+///
+/// Shows more fields than `AppDisplay` (which is optimized for list tables).
+/// Used by single-app commands like `app get`, `app create`, `app update`.
+#[allow(dead_code)] // Used in Sprint 3: app get/update
+#[derive(Debug, Clone, Tabled, Serialize)]
+pub struct AppDetailDisplay {
+    /// Application ID
+    #[tabled(rename = "APP ID")]
+    pub id: String,
+
+    /// Application name
+    #[tabled(rename = "NAME")]
+    pub name: String,
+
+    /// Environment name
+    #[tabled(rename = "ENV")]
+    pub env: String,
+
+    /// Application type (STANDARD or CLOUD)
+    #[tabled(rename = "TYPE")]
+    pub app_type: String,
+
+    /// Application status (ACTIVE, ENV_INCOMPLETE)
+    #[tabled(rename = "STATUS")]
+    pub status: String,
+
+    /// Organization ID
+    #[tabled(rename = "ORG ID")]
+    pub organization_id: String,
+}
+
+impl From<Application> for AppDetailDisplay {
+    fn from(app: Application) -> Self {
+        Self {
+            id: app.id,
+            name: app.name,
+            env: app.env.unwrap_or_default(),
+            app_type: app
+                .application_type
+                .unwrap_or_else(|| "STANDARD".to_string()),
+            status: app.status.unwrap_or_default(),
+            organization_id: app.organization_id.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<&Application> for AppDetailDisplay {
+    fn from(app: &Application) -> Self {
+        Self {
+            id: app.id.clone(),
+            name: app.name.clone(),
+            env: app.env.clone().unwrap_or_default(),
+            app_type: app
+                .application_type
+                .clone()
+                .unwrap_or_else(|| "STANDARD".to_string()),
+            status: app.status.clone().unwrap_or_default(),
+            organization_id: app.organization_id.clone().unwrap_or_default(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,6 +140,7 @@ mod tests {
             organization_id: None,
             application_type: None,
             cloud_scan_target: None,
+            env_id: None,
         };
 
         let display = AppDisplay::from(app);
@@ -97,6 +161,7 @@ mod tests {
             organization_id: Some("org-123".to_string()),
             application_type: None,
             cloud_scan_target: None,
+            env_id: None,
         };
 
         let display = AppDisplay::from(&app);
@@ -120,6 +185,7 @@ mod tests {
                 target_url: Some("https://example.com".to_string()),
                 is_domain_verified: true,
             }),
+            env_id: None,
         };
 
         let display = AppDisplay::from(app);

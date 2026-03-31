@@ -10,23 +10,25 @@ use async_trait::async_trait;
 use chrono::Utc;
 use log::debug;
 use reqwest::{Client as HttpClient, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use serde::de::{self, Deserializer};
 
 use super::api::{
-    AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, ScanDetailApi, TeamApi,
+    AppApi, AuthApi, ConfigApi, EnvironmentApi, ListingApi, OASApi, PerchApi, RepoApi,
+    ScanDetailApi, TeamApi,
 };
 use super::models::{
     AlertMsgResponse, AlertResponse, Application, ApplicationAlert, AuditFilterParams, AuditRecord,
-    ConfigType, CreateTeamRequest, Environment, EnvironmentConfigResponse,
-    GetApplicationMappedOASResponse, GetHostedAssetResponse, GetPerchDeviceResponse, JwtToken,
-    ListEnvironmentsResponse, NewEnvironmentRequest, OASAsset, OrgPolicy, Organization,
-    PerchCommand, PerchCommandRequest, PerchCommandResponse, PerchDevice,
-    RenameConfigurationRequest, Repository, ScanAlertsResponse, ScanConfig, ScanResult, Secret,
-    StackHawkPolicy, Team, TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest,
-    UpsertScanConfigurationRequest, User, ValidatedAssetResponse,
+    ConfigType, CreateApplicationRequest, CreateTeamRequest, CurrentFindingsResponse, Environment,
+    EnvironmentConfigResponse, GetApplicationMappedOASResponse, GetHostedAssetResponse,
+    GetPerchDeviceResponse, JwtToken, ListEnvironmentsResponse, NewEnvironmentRequest, OASAsset,
+    OrgPolicy, Organization, PerchCommand, PerchCommandRequest, PerchCommandResponse, PerchDevice,
+    RenameConfigurationRequest, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse,
+    Repository, ScanAlertsResponse, ScanConfig, ScanResult, Secret, StackHawkPolicy, Team,
+    TeamDetail, UpdateApplicationTeamRequest, UpdateTeamRequest, UpsertScanConfigurationRequest,
+    User, ValidatedAssetResponse,
 };
 use super::pagination::{PagedResponse, PaginationParams};
 use super::rate_limit::{EndpointCategory, RateLimiterSet};
@@ -1641,6 +1643,42 @@ impl ScanDetailApi for StackHawkClient {
 
         Ok(response)
     }
+
+    async fn list_org_findings(
+        &self,
+        org_id: &str,
+        app_ids: &[String],
+        page_size: Option<usize>,
+        page_token: Option<usize>,
+    ) -> Result<CurrentFindingsResponse> {
+        let path = format!("/reports/org/{}/findings", org_id);
+
+        let mut query_params: Vec<(&str, String)> = vec![];
+
+        if !app_ids.is_empty() {
+            // API accepts comma-delimited list
+            query_params.push(("appIds", app_ids.join(",")));
+        }
+
+        if let Some(size) = page_size {
+            query_params.push(("pageSize", size.to_string()));
+        }
+
+        if let Some(token) = page_token {
+            query_params.push(("pageToken", token.to_string()));
+        }
+
+        let response: CurrentFindingsResponse = self
+            .request_with_query(
+                reqwest::Method::GET,
+                &self.base_url_v1,
+                &path,
+                &query_params,
+            )
+            .await?;
+
+        Ok(response)
+    }
 }
 
 // ============================================================================
@@ -2004,6 +2042,106 @@ impl OASApi for StackHawkClient {
             .await?;
 
         Ok(response.assets)
+    }
+}
+
+// ============================================================================
+// AppApi Implementation (Application CRUD)
+// ============================================================================
+
+// ============================================================================
+// RepoApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl RepoApi for StackHawkClient {
+    async fn get_repo(&self, org_id: &str, repo_id: &str) -> Result<Repository> {
+        // Fetch repo list and find by ID (no single-repo GET endpoint exists)
+        let repos: Vec<Repository> = self.list_repos(org_id, None).await?;
+        repos
+            .into_iter()
+            .find(|r| r.id.as_deref() == Some(repo_id))
+            .ok_or_else(|| ApiError::NotFound(format!("Repository not found: {}", repo_id)).into())
+    }
+
+    async fn replace_repo_app_mappings(
+        &self,
+        request: ReplaceRepoAppMappingsRequest,
+    ) -> Result<ReplaceRepoAppMappingsResponse> {
+        let path = format!(
+            "/org/{}/repo/{}/applications",
+            request.org_id, request.repo_id
+        );
+
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ApiRequest {
+            org_id: String,
+            repo_id: String,
+            app_infos: Vec<crate::client::models::RepoAppInfoWrite>,
+        }
+
+        let api_request = ApiRequest {
+            org_id: request.org_id,
+            repo_id: request.repo_id,
+            app_infos: request.app_infos,
+        };
+
+        self.request_with_body(
+            reqwest::Method::POST,
+            &self.base_url_v1,
+            &path,
+            &api_request,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// AppApi Implementation
+// ============================================================================
+
+#[async_trait]
+impl AppApi for StackHawkClient {
+    async fn get_app(&self, app_id: &str) -> Result<Application> {
+        let path = format!("/app/{}", app_id);
+
+        self.request_inner(reqwest::Method::GET, &self.base_url_v1, &path)
+            .await
+    }
+
+    async fn create_app(
+        &self,
+        org_id: &str,
+        request: CreateApplicationRequest,
+    ) -> Result<Application> {
+        let path = format!("/org/{}/app", org_id);
+
+        self.request_with_body(reqwest::Method::POST, &self.base_url_v1, &path, &request)
+            .await
+    }
+
+    async fn update_app(&self, app_id: &str, name: &str) -> Result<Application> {
+        #[derive(Serialize)]
+        struct UpdateRequest<'a> {
+            name: &'a str,
+        }
+
+        let path = format!("/app/{}", app_id);
+
+        self.request_with_body(
+            reqwest::Method::POST,
+            &self.base_url_v1,
+            &path,
+            &UpdateRequest { name },
+        )
+        .await
+    }
+
+    async fn delete_app(&self, app_id: &str) -> Result<()> {
+        let path = format!("/app/{}", app_id);
+
+        self.request_delete(&self.base_url_v1, &path).await
     }
 }
 

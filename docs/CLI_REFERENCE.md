@@ -1,7 +1,7 @@
 # HawkOp CLI Reference
 
-**Last updated**: 2026-03-14
-**Version**: v0.4.0
+**Last updated**: 2026-03-30
+**Version**: v0.5.1+ (feature/refinements)
 **Source of truth**: `src/cli/mod.rs` (clap derives)
 
 Complete taxonomy of every command, subcommand, argument, option, and alias in the HawkOp CLI. Planned (not yet implemented) commands are marked with `[planned]`.
@@ -118,11 +118,13 @@ Used by: `team list`
 
 Initialize HawkOp configuration (interactive setup).
 
+After setup, if run from a git repository, detects the repo, matches against the StackHawk platform, and offers to create an app + link it. Outputs the app ID for `stackhawk.yml` generation.
+
 | Component | Value |
 |-----------|-------|
 | Arguments | (none) |
 | Options | (global only) |
-| API calls | `GET /api/v1/auth/login`, `GET /api/v1/user` |
+| API calls | `GET /api/v1/auth/login`, `GET /api/v1/user`, optionally `GET /api/v1/org/{orgId}/repos`, `POST /api/v1/org/{orgId}/app`, `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
 | Handler | `src/cli/init.rs` |
 
 ---
@@ -207,45 +209,88 @@ List all applications in the current organization.
 | API call | `GET /api/v2/org/{orgId}/apps` |
 | Handler | `src/cli/app.rs` |
 
-#### `app get` [planned]
+#### `app get`
 
-Get a single application by ID.
+Get application details by ID or name.
 
-| Flag | Type | Description |
-|------|------|-------------|
-| `<APP>` | String (positional) | Application name or ID |
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | | Application ID (UUID) |
+| `--name` | `-n` | `String` | | Application name (resolved via API) |
 
-| Component | Value |
-|-----------|-------|
-| API call | `GET /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
-
-#### `app create` [planned]
-
-Create a new application.
+One of `<APP_ID>` or `--name` is required (mutually exclusive).
 
 | Component | Value |
 |-----------|-------|
-| API call | `POST /api/v1/org/{orgId}/app` |
-| Roadmap | Phase 1 |
+| API call | `GET /api/v1/app/{appId}` or `GET /api/v2/org/{orgId}/apps` (name lookup) |
+| Handler | `src/cli/app.rs` |
 
-#### `app update` [planned]
+**Output:**
+- **Pretty/table**: displays app details in table format
+- **JSON**: full application object wrapped in `{data, meta}`
 
-Update an existing application.
+#### `app create`
+
+Create a new application in the current organization.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--name` | `-n` | `String` | **Required** | Application name |
+| `--env` | `-e` | `String` | `Development` | Initial environment name |
+| `--type` | `-t` | `String` | `standard` | Application type: `standard` or `cloud` |
+| `--host` | | `String` | | Application host URL |
+| `--cloud-url` | | `String` | | Cloud scan target URL (required for cloud type) |
+| `--team-id` | | `String` | | Team ID to assign the application to |
+| `--repo` | | `String` | | Link to a repository by name (e.g., `kaakaww/my-api`) |
+| `--repo-id` | | `String` | | Link to a repository by ID (UUID) |
+| `--dry-run` | `-N` | `bool` | | Preview without creating |
+
+| Component | Value |
+|-----------|-------|
+| Source | `src/cli/app.rs` |
+| API call | `POST /api/v1/org/{orgId}/app` (+ repo link if `--repo`/`--repo-id`) |
+
+**Output:**
+- **Pretty/table**: prints application ID to stdout (pipeable), confirmation to stderr
+- **JSON**: full application object wrapped in `{data, meta}`. If `--repo`/`--repo-id` is provided, `data` contains `{application, repo_link}`.
+- When run from a git repo without `--repo`, suggests a `repo link` command for the detected repo
+
+#### `app update`
+
+Rename an existing application.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | **Required** | Application ID (UUID) |
+| `--name` | `-n` | `String` | **Required** | New application name |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
 
 | Component | Value |
 |-----------|-------|
 | API call | `POST /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
+| Handler | `src/cli/app.rs` |
 
-#### `app delete` [planned]
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: updated application object wrapped in `{data, meta}`
 
-Delete an application.
+#### `app delete`
+
+Delete an application permanently.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `<APP_ID>` | | `String` (positional) | **Required** | Application ID (UUID) |
+| `--yes` | `-y` | `bool` | | Skip confirmation prompt |
 
 | Component | Value |
 |-----------|-------|
 | API call | `DELETE /api/v1/app/{appId}` |
-| Roadmap | Phase 1 |
+| Handler | `src/cli/app.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: `{data: {deleted: true, applicationId}, meta}` to stdout
 
 #### `app policy get` [planned]
 
@@ -315,17 +360,36 @@ Get scan details with optional drill-down.
 | `--app` | `-a` | `String` | (none) | Filter by app name (only with "latest") |
 | `--app-id` | | `String` | (none) | Filter by app ID (only with "latest") |
 | `--env` | `-e` | `String` | (none) | Filter by environment (only with "latest") |
+| `--detail` | `-d` | `String` | (none) | Detail level: `full` for AI-optimized output |
+| `--max-findings` | | `usize` | `100` | Max findings to include (sorted by severity) |
+| `--max-body-size` | | `usize` | `10240` | Max response body bytes before truncation |
 | `--plugin-id` | `-p` | `String` | (none) | Show detail for specific plugin/vuln type |
 | `--uri-id` | `-u` | `String` | (none) | Show detail for specific URI/finding |
 | `--message` | `-m` | `bool` | `false` | Include HTTP message (requires `--uri-id`) |
 | `--format` | `-o` | `pretty\|table\|json` | `pretty` | Output format (overrides global) |
 
+**Detail levels:**
+
+| Level | Description |
+|-------|-------------|
+| (default) | Overview with alerts table |
+| `full` | Complete findings with HTTP messages, evidence, remediation advice, and validation commands. Outputs a self-contained JSON document (schema v1.0) suitable for AI agent consumption. |
+
+**`--detail full` output schema** (v1.0):
+
+The output is a single JSON document with sections: `scan` (metadata), `summary` (aggregate counts), `findings[]` (each with `paths[]` containing evidence, HTTP messages, and remediation advice), and `meta` (generation stats). Key fields for AI agents:
+- `findings[].remediation_advice` — actionable fix guidance
+- `findings[].paths[].validation_command` — curl command to reproduce
+- `findings[].paths[].finding_hash` — stable cross-scan identifier
+- `findings[].paths[].evidence` + `param` — what was vulnerable and where
+- `findings[].paths[].request`/`response` — inline HTTP details
+
 | Component | Value |
 |-----------|-------|
-| Conflicts | `--app` conflicts with `--app-id` |
+| Conflicts | `--app` conflicts with `--app-id`; `--detail full` ignores `--plugin-id`, `--uri-id`, `-m` |
 | Requires | `--message` requires `--uri-id` |
 | Dynamic completions | scan_id, app_name, plugin_id, uri_id |
-| API calls | `GET /api/v1/scan/{scanId}`, `GET /api/v1/scan/{scanId}/alerts`, `GET /api/v1/scan/{scanId}/alert/{pluginId}`, `GET /api/v1/scan/{scanId}/uri/{alertUriId}/messages/{messageId}` |
+| API calls | `GET /api/v1/scan/{scanId}/alerts`, `GET /api/v1/scan/{scanId}/alert/{pluginId}` (per plugin), `GET /api/v1/scan/{scanId}/uri/{alertUriId}/messages/{messageId}` (per path), `GET /api/v1/reports/org/{orgId}/findings` (enrichment) |
 | Handler | `src/cli/scan.rs` |
 
 #### `scan delete` [planned]
@@ -681,23 +745,55 @@ List repositories in the organization's attack surface.
 | API call | `GET /api/v1/org/{orgId}/repos` |
 | Handler | `src/cli/repo.rs` |
 
-#### `repo associate` [planned]
+#### `repo link`
 
-Associate applications to repositories.
+Link an application to a repository (additive, preserves existing mappings).
 
-| Component | Value |
-|-----------|-------|
-| API call | `PUT /api/v1/org/{orgId}/repos/apps` |
-| Roadmap | Phase 4 |
+Uses a **read-merge-write** pattern: reads existing mappings, adds the new app,
+then POSTs the full list (the API uses full-replacement semantics).
 
-#### `repo set-apps` [planned]
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--repo-id` | | `String` | | Repository ID (UUID) |
+| `--repo` | | `String` | | Repository name (resolved via API) |
+| `--app-id` | | `String` | | Existing application ID to link |
+| `--app-name` | | `String` | | New application name (creates app + links) |
+| `--env` | `-e` | `String` | `Development` | Environment for new app (only with `--app-name`) |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
 
-Replace repository application mappings.
+One of `--repo-id` or `--repo` is required (mutually exclusive).
+One of `--app-id` or `--app-name` is required (mutually exclusive).
 
 | Component | Value |
 |-----------|-------|
 | API call | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
-| Roadmap | Phase 4 |
+| Handler | `src/cli/repo.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: response object wrapped in `{data, meta}` to stdout
+
+#### `repo set-apps`
+
+Replace ALL application mappings for a repository (full replacement).
+
+**Warning**: Existing mappings not in the list will be removed. Use `repo link` for additive operations.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--repo-id` | | `String` | **Required** | Repository ID (UUID) |
+| `--app-ids` | | `String` (comma-separated) | **Required** | Application IDs |
+| `--yes` | `-y` | `bool` | | Skip confirmation prompt |
+| `--dry-run` | `-N` | `bool` | | Preview without making changes |
+
+| Component | Value |
+|-----------|-------|
+| API call | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
+| Handler | `src/cli/repo.rs` |
+
+**Output:**
+- **Pretty/table**: confirmation message to stderr
+- **JSON**: response object wrapped in `{data, meta}` to stdout
 
 #### `repo sensitive-data` [planned]
 
@@ -1186,12 +1282,18 @@ List findings across all scans in the organization.
 | `env delete` | `hosted_tests.rs` | `_without_app_fails` | Args only |
 | `cache status` | `read_tests.rs` | `test_cache_status_succeeds` | Basic |
 | `cache path` | `read_tests.rs` | `test_cache_path_shows_path` | Basic |
-| `cache clear` | | | **None** |
-| `profile list` | | | **None** |
-| `profile use` | | | **None** |
-| `profile create` | | | **None** |
-| `profile delete` | | | **None** |
-| `profile show` | | | **None** |
+| `app create` | | | **None** (unit tests for filter_by_type only) |
+| `app get` | | | **None** |
+| `app update` | | | **None** |
+| `app delete` | | | **None** |
+| `repo link` | | | **None** (unit tests for shared helpers) |
+| `repo set-apps` | | | **None** |
+| `cache clear` | `local_tests.rs` | `test_cache_clear_succeeds`, `_then_status` | Good |
+| `profile list` | `local_tests.rs` | `test_profile_list_succeeds`, `_json_format` | Default + JSON |
+| `profile use` | `local_tests.rs` | `test_profile_use_nonexistent_fails` | Error only |
+| `profile create` | `local_tests.rs` | `test_profile_create_and_delete`, `_duplicate_fails`, `_with_from` | Good |
+| `profile delete` | `local_tests.rs` | `test_profile_delete_default_fails`, `_nonexistent_fails` | Error only |
+| `profile show` | `local_tests.rs` | `test_profile_show_active`, `_specific`, `_nonexistent` | Good |
 | `completion bash` | `read_tests.rs` | `test_completion_bash` | Basic |
 | `completion zsh` | `read_tests.rs` | `test_completion_zsh` | Basic |
 
@@ -1221,8 +1323,8 @@ List findings across all scans in the organization.
 Commands with **no functional tests**:
 - `org set`
 - `team set-users`, `team set-apps`
-- `cache clear`
-- All `profile` commands (`list`, `use`, `create`, `delete`, `show`)
+- `app create`, `app get`, `app update`, `app delete` (unit tests exist for shared helpers)
+- `repo link`, `repo set-apps` (unit tests exist for shared helpers)
 - `init` (interactive — difficult to test non-interactively)
 
 Commands with **error-only tests** (no happy path):
@@ -1236,27 +1338,18 @@ See [ROADMAP.md](ROADMAP.md) for full details and prioritization.
 
 | Phase | Command | API Endpoint |
 |-------|---------|--------------|
-| 1 | `app get` | `GET /api/v1/app/{appId}` |
-| 1 | `app create` | `POST /api/v1/org/{orgId}/app` |
-| 1 | `app update` | `POST /api/v1/app/{appId}` |
-| 1 | `app delete` | `DELETE /api/v1/app/{appId}` |
 | 1 | `findings list` | `GET /api/v1/reports/org/{orgId}/findings` |
 | 2 | `policy get` | `GET /api/v1/policy/{orgId}/{policyName}` |
 | 2 | `policy set` | `POST /api/v1/policy/{orgId}/update` |
-| 2 | `policy delete` | `DELETE /api/v1/policy/{orgId}/{policyName}` |
-| 2 | `app policy get` | `GET /api/v1/app/{appId}/policy` |
 | 2 | `app policy assign` | `PUT /api/v1/app/{appId}/policy/assign` |
 | 2 | `app policy flags` | `GET/PUT /api/v1/app/{appId}/policy/flags` |
 | 2 | `app policy toggle` | `GET /api/v1/app/{appId}/policy/plugins/{pluginId}/{toggle}` |
 | 3 | `env update` | `POST /api/v1/app/{appId}/env/{envId}` |
-| 3 | `env config set` | `POST /api/v1/app/{appId}/env/{envId}/config/default` |
-| 3 | `env list --all` | `GET /api/v2/org/{orgId}/envs` |
+| 3 | `oas upload` | `POST /api/v1/oas/{appId}/upload` |
 | 3 | `oas map` / `oas unmap` | `POST /api/v1/oas/{appId}/mapping` |
 | 4 | `repo associate` | `PUT /api/v1/org/{orgId}/repos/apps` |
-| 4 | `repo set-apps` | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
 | 4 | `repo sensitive-data` | `GET /api/v1/org/{orgId}/repo/{repoId}/sensitive/list` |
 | 4 | `scan delete` | `DELETE /api/v1/scan/{scanId}` |
-| 4 | `app alerts set-rule` | `POST /api/v1/app/{appId}/alerts/rules/{integrationId}` |
 | 4 | `team list --user` | `GET /api/v1/org/{orgId}/user/{userId}/teams` |
 
 ---

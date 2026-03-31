@@ -164,7 +164,7 @@ Then create a PR on GitHub.
 ### Running Tests
 
 ```bash
-# All tests
+# All tests (unit + integration)
 make test
 
 # With output
@@ -178,13 +178,34 @@ cargo test module_name
 
 # Integration tests only
 cargo test --test cli
+
+# Functional tests (requires API access)
+HAWKOP_PROFILE=test HAWKOP_FUNCTIONAL_TESTS_CONFIRM=yes \
+  cargo test --features functional-tests --test functional -- --test-threads=1 --nocapture
 ```
 
 ### Test Organization
 
 - **Unit tests**: In the same file as the code, within `#[cfg(test)]` modules
-- **Integration tests**: In `tests/` directory
+- **Integration tests**: In `tests/` directory (use `mockito` for HTTP mocking)
+- **Functional tests**: In `tests/functional/` (run against real API with `HAWKOP_PROFILE`)
 - **Test fixtures**: In `src/client/fixtures.rs` for building test data
+- **Mock client**: In `src/client/mock.rs` for testing without API access
+
+### Functional Test Profiles
+
+Functional tests **require** `HAWKOP_PROFILE` to be set. This prevents accidentally running tests against your default (production) profile.
+
+```bash
+# Set up a test profile (one-time)
+hawkop init --profile test
+# Enter your test environment API key when prompted
+
+# Run functional tests
+HAWKOP_PROFILE=test make functional-test
+```
+
+The test profile should point to `api.test.stackhawk.com` (or your test environment). Never run functional tests against production.
 
 ### Test Dependencies
 

@@ -23,7 +23,7 @@ mod secret;
 mod user;
 
 // Re-export all models for convenient access
-pub use app::{Application, CloudScanTarget};
+pub use app::{Application, CloudScanTarget, CreateApplicationRequest};
 pub use audit::{AuditFilterParams, AuditRecord};
 pub use auth::JwtToken;
 pub use config::{
@@ -35,8 +35,8 @@ pub use env::{
     ListEnvironmentsResponse, NewEnvironmentRequest,
 };
 pub use finding::{
-    AlertMsgResponse, AlertResponse, ApplicationAlert, ApplicationAlertUri, ScanAlertsResponse,
-    ScanMessage, ScanResultWithAlerts,
+    AlertMsgResponse, AlertResponse, ApplicationAlert, ApplicationAlertUri, CurrentFindingRow,
+    CurrentFindingsResponse, ScanAlertsResponse, ScanMessage, ScanResultWithAlerts,
 };
 pub use oas::{GetApplicationMappedOASResponse, OASAsset};
 pub use org::Organization;
@@ -46,7 +46,8 @@ pub use perch::{
 };
 pub use policy::{OrgPolicy, PolicyType, StackHawkPolicy};
 pub use repo::{
-    OpenApiSpecInfo, RepoAppInfo, RepoContributor, RepoInsight, Repository, SensitiveDataTag,
+    OpenApiSpecInfo, ReplaceRepoAppMappingsRequest, ReplaceRepoAppMappingsResponse, RepoAppInfo,
+    RepoAppInfoWrite, RepoContributor, RepoInsight, Repository, SensitiveDataTag,
 };
 pub use scan::{AlertStats, AlertStatusStats, Scan, ScanMetadata, ScanResult, ScanTag};
 pub use secret::Secret;

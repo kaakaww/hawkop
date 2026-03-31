@@ -235,9 +235,19 @@ fn test_org_set_and_get_roundtrip() {
                         .stdout(predicate::str::contains(org_id));
 
                     // Restore original (parse original JSON to get the ID back)
+                    // Note: org get --format json wraps output as {"data": {...}, "meta": {...}}
                     if let Ok(orig_json) = serde_json::from_str::<serde_json::Value>(&original) {
-                        if let Some(orig_id) = orig_json.get("id").and_then(|id| id.as_str()) {
+                        if let Some(orig_id) = orig_json
+                            .get("data")
+                            .and_then(|d| d.get("id"))
+                            .and_then(|id| id.as_str())
+                        {
                             let _ = ctx.command(&["org", "set", orig_id]).output();
+                        } else {
+                            panic!(
+                                "[BUG] Could not parse original org ID from JSON — org will not be restored!\nJSON: {}",
+                                original
+                            );
                         }
                     }
                     return;
