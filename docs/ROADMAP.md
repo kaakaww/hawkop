@@ -1,9 +1,9 @@
 # HawkOp API Coverage Roadmap
 
-**Last updated**: 2026-03-28
-**Current version**: v0.4.0
+**Last updated**: 2026-03-30
+**Current version**: v0.5.1+ (feature/refinements)
 **OAS reference**: `stackhawk-openapi.json` (root of repo, refreshed 2026-03-28)
-**Current coverage**: 33/55 endpoints (60%)
+**Current coverage**: 38/55 endpoints (69%)
 
 This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Public API](https://apidocs.stackhawk.com/docs). Each phase groups related endpoints by user value and implementation dependencies.
 
@@ -13,7 +13,7 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 
 | Phase | Area | Endpoints | Status |
 |-------|------|-----------|--------|
-| Done | Auth, List/Get, Scan drill-down, Teams CRUD, Configs CRUD, Envs, Hosted scans, OAS mappings, Audit, Secrets | 33 | Complete |
+| Done | Auth, List/Get, Scan drill-down, Teams CRUD, Configs CRUD, Envs, Hosted scans, OAS mappings, Audit, Secrets, App CRUD, Repo link | 38 | Complete |
 | 1 | App CRUD + Org Findings | 5 | Partial (4/5 — findings list pending) |
 | 2 | Policy Management | 7 | Not started |
 | 3 | OAS + Env Completion | 3 | Not started |
@@ -36,8 +36,8 @@ This document tracks HawkOp's progress toward 100% coverage of the [StackHawk Pu
 | `/api/v1/reports/org/{orgId}/findings` | GET | `listOrganizationFindings` | `findings list` | Not started |
 
 ### Notes
-- `app create` should support `--name`, `--type`, `--env` flags
-- `app delete` must require `--yes` or interactive confirmation
+- `app create` supports `--name`, `--type`, `--env`, `--host`, `--cloud-url`, `--team-id`, `--repo`/`--repo-id` ✅
+- `app delete` requires `--yes` or interactive confirmation ✅
 - `findings list` should support filtering by severity, status, app, and date range
 - Consider whether `findings` is a top-level command or nested under `scan`
 
@@ -176,8 +176,15 @@ These endpoints are fully implemented and tested:
 - ⚠️ `GET /api/v1/oas/{orgId}/list` — **Removed from spec** (still called by `oas list`)
 - ⚠️ `GET /api/v1/oas/{orgId}/{oasId}` — **Removed from spec** (still called by `oas get`)
 
-### Repositories (read)
+### Applications (write)
+- `POST /api/v1/org/{orgId}/app` — Create application
+- `GET /api/v1/app/{appId}` — Get application
+- `POST /api/v1/app/{appId}` — Update application
+- `DELETE /api/v1/app/{appId}` — Delete application
+
+### Repositories (read + write)
 - `GET /api/v1/org/{orgId}/repos` — List repos
+- `POST /api/v1/org/{orgId}/repo/{repoId}/applications` — Replace repo app mappings (used by `repo link` and `repo set-apps`)
 
 ### Audit
 - `GET /api/v1/org/{orgId}/audit` — Audit log

@@ -1,7 +1,7 @@
 # HawkOp CLI Reference
 
-**Last updated**: 2026-03-28
-**Version**: v0.5.1
+**Last updated**: 2026-03-30
+**Version**: v0.5.1+ (feature/refinements)
 **Source of truth**: `src/cli/mod.rs` (clap derives)
 
 Complete taxonomy of every command, subcommand, argument, option, and alias in the HawkOp CLI. Planned (not yet implemented) commands are marked with `[planned]`.
@@ -118,11 +118,13 @@ Used by: `team list`
 
 Initialize HawkOp configuration (interactive setup).
 
+After setup, if run from a git repository, detects the repo, matches against the StackHawk platform, and offers to create an app + link it. Outputs the app ID for `stackhawk.yml` generation.
+
 | Component | Value |
 |-----------|-------|
 | Arguments | (none) |
 | Options | (global only) |
-| API calls | `GET /api/v1/auth/login`, `GET /api/v1/user` |
+| API calls | `GET /api/v1/auth/login`, `GET /api/v1/user`, optionally `GET /api/v1/org/{orgId}/repos`, `POST /api/v1/org/{orgId}/app`, `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
 | Handler | `src/cli/init.rs` |
 
 ---
@@ -1280,12 +1282,18 @@ List findings across all scans in the organization.
 | `env delete` | `hosted_tests.rs` | `_without_app_fails` | Args only |
 | `cache status` | `read_tests.rs` | `test_cache_status_succeeds` | Basic |
 | `cache path` | `read_tests.rs` | `test_cache_path_shows_path` | Basic |
-| `cache clear` | | | **None** |
-| `profile list` | | | **None** |
-| `profile use` | | | **None** |
-| `profile create` | | | **None** |
-| `profile delete` | | | **None** |
-| `profile show` | | | **None** |
+| `app create` | | | **None** (unit tests for filter_by_type only) |
+| `app get` | | | **None** |
+| `app update` | | | **None** |
+| `app delete` | | | **None** |
+| `repo link` | | | **None** (unit tests for shared helpers) |
+| `repo set-apps` | | | **None** |
+| `cache clear` | `local_tests.rs` | `test_cache_clear_succeeds`, `_then_status` | Good |
+| `profile list` | `local_tests.rs` | `test_profile_list_succeeds`, `_json_format` | Default + JSON |
+| `profile use` | `local_tests.rs` | `test_profile_use_nonexistent_fails` | Error only |
+| `profile create` | `local_tests.rs` | `test_profile_create_and_delete`, `_duplicate_fails`, `_with_from` | Good |
+| `profile delete` | `local_tests.rs` | `test_profile_delete_default_fails`, `_nonexistent_fails` | Error only |
+| `profile show` | `local_tests.rs` | `test_profile_show_active`, `_specific`, `_nonexistent` | Good |
 | `completion bash` | `read_tests.rs` | `test_completion_bash` | Basic |
 | `completion zsh` | `read_tests.rs` | `test_completion_zsh` | Basic |
 
@@ -1315,8 +1323,8 @@ List findings across all scans in the organization.
 Commands with **no functional tests**:
 - `org set`
 - `team set-users`, `team set-apps`
-- `cache clear`
-- All `profile` commands (`list`, `use`, `create`, `delete`, `show`)
+- `app create`, `app get`, `app update`, `app delete` (unit tests exist for shared helpers)
+- `repo link`, `repo set-apps` (unit tests exist for shared helpers)
 - `init` (interactive — difficult to test non-interactively)
 
 Commands with **error-only tests** (no happy path):
@@ -1330,27 +1338,18 @@ See [ROADMAP.md](ROADMAP.md) for full details and prioritization.
 
 | Phase | Command | API Endpoint |
 |-------|---------|--------------|
-| 1 | `app get` | `GET /api/v1/app/{appId}` |
-| 1 | `app create` | `POST /api/v1/org/{orgId}/app` |
-| 1 | `app update` | `POST /api/v1/app/{appId}` |
-| 1 | `app delete` | `DELETE /api/v1/app/{appId}` |
 | 1 | `findings list` | `GET /api/v1/reports/org/{orgId}/findings` |
 | 2 | `policy get` | `GET /api/v1/policy/{orgId}/{policyName}` |
 | 2 | `policy set` | `POST /api/v1/policy/{orgId}/update` |
-| 2 | `policy delete` | `DELETE /api/v1/policy/{orgId}/{policyName}` |
-| 2 | `app policy get` | `GET /api/v1/app/{appId}/policy` |
 | 2 | `app policy assign` | `PUT /api/v1/app/{appId}/policy/assign` |
 | 2 | `app policy flags` | `GET/PUT /api/v1/app/{appId}/policy/flags` |
 | 2 | `app policy toggle` | `GET /api/v1/app/{appId}/policy/plugins/{pluginId}/{toggle}` |
 | 3 | `env update` | `POST /api/v1/app/{appId}/env/{envId}` |
-| 3 | `env config set` | `POST /api/v1/app/{appId}/env/{envId}/config/default` |
-| 3 | `env list --all` | `GET /api/v2/org/{orgId}/envs` |
+| 3 | `oas upload` | `POST /api/v1/oas/{appId}/upload` |
 | 3 | `oas map` / `oas unmap` | `POST /api/v1/oas/{appId}/mapping` |
 | 4 | `repo associate` | `PUT /api/v1/org/{orgId}/repos/apps` |
-| 4 | `repo set-apps` | `POST /api/v1/org/{orgId}/repo/{repoId}/applications` |
 | 4 | `repo sensitive-data` | `GET /api/v1/org/{orgId}/repo/{repoId}/sensitive/list` |
 | 4 | `scan delete` | `DELETE /api/v1/scan/{scanId}` |
-| 4 | `app alerts set-rule` | `POST /api/v1/app/{appId}/alerts/rules/{integrationId}` |
 | 4 | `team list --user` | `GET /api/v1/org/{orgId}/user/{userId}/teams` |
 
 ---
